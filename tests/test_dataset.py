@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 import tensorflow as tf
 from pathlib import Path
-from dataset import CloudPatchDataset
+from dataset import CloudPatchDataset, _build_albumentations_pipeline
 from geospatial_utils import save_patches, generate_tile_coords, extract_patches
 import rasterio
 
@@ -107,3 +107,29 @@ def test_lazy_loading_from_geotiff(tmp_path):
     X, y = dataset[0]
     assert X.shape == (2, 256, 256, 4)
     assert y.shape == (2, 256, 256, 3)
+
+def test_build_albumentations_pipeline():
+    # Instantiate the pipeline
+    pipeline = _build_albumentations_pipeline()
+
+    # Create dummy data for testing the pipeline
+    # 4-channel image (H, W, C)
+    dummy_image = np.random.rand(256, 256, 4).astype(np.float32)
+    # 1-channel mask (H, W)
+    dummy_mask = np.random.randint(0, 3, size=(256, 256)).astype(np.uint8)
+
+    # Apply the pipeline
+    augmented = pipeline(image=dummy_image, mask=dummy_mask)
+
+    # Verify that 'image' and 'mask' keys exist in the output
+    assert "image" in augmented
+    assert "mask" in augmented
+
+    aug_image = augmented["image"]
+    aug_mask = augmented["mask"]
+
+    # Verify shapes and types are maintained
+    assert aug_image.shape == (256, 256, 4)
+    assert aug_image.dtype == np.float32
+    assert aug_mask.shape == (256, 256)
+    assert aug_mask.dtype == np.uint8
