@@ -52,7 +52,6 @@ import logging
 import os
 import sys
 import tempfile
-import threading
 from pathlib import Path
 
 import numpy as np
