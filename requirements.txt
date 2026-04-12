@@ -7,7 +7,7 @@ numpy>=1.24,<2.0
 
 # ── Geospatial I/O ────────────────────────────────────────────────────────────
 rasterio>=1.3.8
-GDAL>=3.6.0                  # rasterio backend; install via conda or apt on Linux
+GDAL==3.8.4                  # rasterio backend; install via conda or apt on Linux
 pyproj>=3.5.0                # CRS transformations
 shapely>=2.0.0
 

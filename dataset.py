@@ -79,13 +79,6 @@ def _build_albumentations_pipeline() -> "A.Compose":
             A.HorizontalFlip(p=0.5),
             A.VerticalFlip(p=0.5),
             A.RandomRotate90(p=0.75),
-            A.RandomBrightnessContrast(
-                brightness_limit=0.15,
-                contrast_limit=0.15,
-                p=0.40,
-            ),
-            A.GaussNoise(var_limit=(0.0005, 0.002), p=0.30),
-            A.GaussianBlur(blur_limit=(3, 5), p=0.20),
             # CoarseDropout simulates sensor occlusion / small clouds that
             # were not annotated — forces the model to be robust to gaps.
             A.CoarseDropout(
