@@ -827,13 +827,7 @@ def _render_finetune_panel(cfg: dict) -> None:
 #  SECTION 9 — MAIN APPLICATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def main() -> None:
-    """Streamlit application entry point."""
-
-    # ── Sidebar (always rendered) ─────────────────────────────────────────────
-    cfg = _render_sidebar()
-
-    # ── Page header ───────────────────────────────────────────────────────────
+def _render_header() -> None:
     st.markdown(
         "<h1 style='font-size:2rem;'>🛰️ CloudShadow-UNet</h1>"
         "<p style='color:#666;'>Satellite Cloud & Shadow Segmentation · "
@@ -842,50 +836,50 @@ def main() -> None:
     )
     st.markdown("---")
 
-    # ── No file uploaded state ────────────────────────────────────────────────
-    if cfg["uploaded_image_bytes"] is None:
-        col_l, col_r = st.columns([2, 1])
-        with col_l:
-            st.markdown(
-                "### Getting Started\n\n"
-                "1. **Upload** a 4-band GeoTIFF in the sidebar "
-                "(Sentinel-2 / Landsat 8 Level-2A)\n"
-                "2. Click **🚀 Run Inference**\n"
-                "3. Explore results across all tabs\n"
-                "4. **Download** the georeferenced mask for QGIS\n\n"
-                "> No trained model yet?  Run:\n"
-                "> ```bash\n"
-                "> python train.py --mode train --config configs/unet_baseline.yaml\n"
-                "> ```"
-            )
-        with col_r:
-            st.markdown(
-                "<div style='background:#0e1117;border:1px solid #333;"
-                "border-radius:8px;padding:16px'>"
-                "<h4 style='color:#1E90FF'>Model Status</h4>"
-                + (
-                    "<p style='color:#00c853'>✅ Model loaded and ready</p>"
-                    if _load_model(cfg["model_path"]) is not None
-                    else "<p style='color:#ff5252'>⚠️ No model found at the specified path</p>"
-                )
-                + "</div>",
-                unsafe_allow_html=True,
-            )
 
-        with st.expander("📚 How to prepare your data"):
-            st.markdown(
-                "**Step 1 — Merge band files** (if your dataset ships as separate files):\n"
-                "```bash\ngdal_merge.py -separate -o scene.tif r.tif g.tif b.tif nir.tif\n```\n\n"
-                "**Step 2 — Preprocess**:\n"
-                "```bash\npython geospatial_utils.py \\\n"
-                "    --image data/raw/scene.tif \\\n"
-                "    --mask  data/raw/scene_mask.tif\n```\n\n"
-                "**Step 3 — Train**:\n"
-                "```bash\npython train.py --mode train\n```"
+def _render_landing_page(cfg: dict) -> None:
+    col_l, col_r = st.columns([2, 1])
+    with col_l:
+        st.markdown(
+            "### Getting Started\n\n"
+            "1. **Upload** a 4-band GeoTIFF in the sidebar "
+            "(Sentinel-2 / Landsat 8 Level-2A)\n"
+            "2. Click **🚀 Run Inference**\n"
+            "3. Explore results across all tabs\n"
+            "4. **Download** the georeferenced mask for QGIS\n\n"
+            "> No trained model yet?  Run:\n"
+            "> ```bash\n"
+            "> python train.py --mode train --config configs/unet_baseline.yaml\n"
+            "> ```"
+        )
+    with col_r:
+        st.markdown(
+            "<div style='background:#0e1117;border:1px solid #333;"
+            "border-radius:8px;padding:16px'>"
+            "<h4 style='color:#1E90FF'>Model Status</h4>"
+            + (
+                "<p style='color:#00c853'>✅ Model loaded and ready</p>"
+                if _load_model(cfg["model_path"]) is not None
+                else "<p style='color:#ff5252'>⚠️ No model found at the specified path</p>"
             )
-        return
+            + "</div>",
+            unsafe_allow_html=True,
+        )
 
-    # ── Trigger inference ─────────────────────────────────────────────────────
+    with st.expander("📚 How to prepare your data"):
+        st.markdown(
+            "**Step 1 — Merge band files** (if your dataset ships as separate files):\n"
+            "```bash\ngdal_merge.py -separate -o scene.tif r.tif g.tif b.tif nir.tif\n```\n\n"
+            "**Step 2 — Preprocess**:\n"
+            "```bash\npython geospatial_utils.py \\\n"
+            "    --image data/raw/scene.tif \\\n"
+            "    --mask  data/raw/scene_mask.tif\n```\n\n"
+            "**Step 3 — Train**:\n"
+            "```bash\npython train.py --mode train\n```"
+        )
+
+
+def _execute_main_workflow(cfg: dict) -> None:
     file_bytes = cfg["uploaded_image_bytes"]
     model_path = cfg["model_path"]
     patch_size = cfg["patch_size"]
@@ -966,6 +960,24 @@ def main() -> None:
     with tab_finetune:
         st.subheader("Continuous Learning — Fine-Tune on New Data")
         _render_finetune_panel(cfg)
+
+
+def main() -> None:
+    """Streamlit application entry point."""
+
+    # ── Sidebar (always rendered) ─────────────────────────────────────────────
+    cfg = _render_sidebar()
+
+    # ── Page header ───────────────────────────────────────────────────────────
+    _render_header()
+
+    # ── No file uploaded state ────────────────────────────────────────────────
+    if cfg["uploaded_image_bytes"] is None:
+        _render_landing_page(cfg)
+        return
+
+    # ── Trigger inference ─────────────────────────────────────────────────────
+    _execute_main_workflow(cfg)
 
 
 # ─── run ──────────────────────────────────────────────────────────────────────
