@@ -38,3 +38,75 @@ def test_stitch_predictions():
     assert stitched.dtype == np.int32
     assert stitched.min() >= 0
     assert stitched.max() < 3
+
+
+def test_compute_area_stats():
+    from geospatial_utils import compute_area_stats
+
+    # 0 = Background, 1 = Cloud, 2 = Shadow
+    # 10x10 array = 100 pixels
+    # Let's say: 50 background, 30 cloud, 20 shadow
+    class_map = np.zeros((10, 10), dtype=np.int32)
+    class_map[0:3, :] = 1 # 30 cloud pixels
+    class_map[3:5, :] = 2 # 20 shadow pixels
+
+    # Using default pixel_area_m2 = 100.0 (100 pixels = 10000 m^2 = 0.01 km^2)
+    stats = compute_area_stats(class_map)
+
+    # Background: 50 pixels, 50 * 100 = 5000 m^2 = 0.0050 km^2, 50%
+    assert stats['Background']['px_count'] == 50.0
+    assert stats['Background']['area_km2'] == 0.0050
+    assert stats['Background']['percentage'] == 50.0
+
+    # Cloud: 30 pixels, 30 * 100 = 3000 m^2 = 0.0030 km^2, 30%
+    assert stats['Cloud']['px_count'] == 30.0
+    assert stats['Cloud']['area_km2'] == 0.0030
+    assert stats['Cloud']['percentage'] == 30.0
+
+    # Shadow: 20 pixels, 20 * 100 = 2000 m^2 = 0.0020 km^2, 20%
+    assert stats['Shadow']['px_count'] == 20.0
+    assert stats['Shadow']['area_km2'] == 0.0020
+    assert stats['Shadow']['percentage'] == 20.0
+
+def test_compute_area_stats_custom_area():
+    from geospatial_utils import compute_area_stats
+
+    class_map = np.zeros((10, 10), dtype=np.int32)
+
+    # 10x10 array = 100 pixels. Each pixel = 900 m^2. Total = 90000 m^2 = 0.09 km^2
+    stats = compute_area_stats(class_map, pixel_area_m2=900.0)
+
+    assert stats['Background']['px_count'] == 100.0
+    assert stats['Background']['area_km2'] == 0.0900
+    assert stats['Background']['percentage'] == 100.0
+
+    assert stats['Cloud']['px_count'] == 0.0
+    assert stats['Cloud']['area_km2'] == 0.0
+    assert stats['Cloud']['percentage'] == 0.0
+
+def test_compute_area_stats_missing_class():
+    from geospatial_utils import compute_area_stats
+
+    # All background and cloud, NO shadow
+    class_map = np.zeros((10, 10), dtype=np.int32)
+    class_map[0:5, :] = 1 # 50 cloud pixels
+
+    stats = compute_area_stats(class_map)
+
+    assert stats['Background']['px_count'] == 50.0
+    assert stats['Cloud']['px_count'] == 50.0
+    assert stats['Shadow']['px_count'] == 0.0
+
+    assert stats['Shadow']['area_km2'] == 0.0
+    assert stats['Shadow']['percentage'] == 0.0
+
+def test_compute_area_stats_zero_total_area():
+    from geospatial_utils import compute_area_stats
+
+    class_map = np.empty((0, 0), dtype=np.int32)
+
+    stats = compute_area_stats(class_map)
+
+    assert stats['Background']['px_count'] == 0.0
+    assert stats['Background']['area_km2'] == 0.0
+    assert stats['Background']['percentage'] == 0.0 # Handled by max(total_px, 1)

@@ -549,71 +549,38 @@ def write_mask_geotiff(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def compute_area_stats(
-    class_map:      np.ndarray,
-    source_profile: dict,
-) -> dict[str, float]:
-    """Compute per-class pixel counts and area in km².
-
-    The ground sampling distance (GSD) is derived from the diagonal of the
-    affine transform matrix:
-        pixel_width_m  = |transform.a|
-        pixel_height_m = |transform.e|
-
-    For Sentinel-2 B02–B08 (10 m GSD): pixel_area = 100 m² = 0.0001 km²
-    For Landsat 8 OLI (30 m GSD): pixel_area = 900 m² = 0.0009 km²
+    class_map: np.ndarray,
+    pixel_area_m2: float = 100.0  # 10m x 10m Sentinel-2 pixels = 100m²
+) -> dict[str, dict[str, float]]:
+    """Compute area statistics and percentages for each class.
 
     Args:
-        class_map:      (H, W) integer class label array.
-        source_profile: rasterio profile dict with 'transform' key.
+        class_map: (H, W) array of integers {0, 1, 2}.
+        pixel_area_m2: Physical area of a single pixel in square metres.
 
     Returns:
-        Dictionary with keys:
-          background_px, cloud_px, shadow_px,
-          background_km2, cloud_km2, shadow_km2,
-          total_km2, cloud_fraction, shadow_fraction
+        Dictionary mapping class names to their statistics (px_count, area_km2, percentage).
     """
-    transform = source_profile.get("transform")
-    stats: dict[str, float] = {}
+    stats: dict[str, dict[str, float]] = {}
 
-    # Pixel counts
+    total_px = class_map.size
+    to_km2 = pixel_area_m2 / 1_000_000.0
+
     for cls_id, name in CLASS_LABELS.items():
         cnt = int(np.sum(class_map == cls_id))
-        stats[f"{name.lower()}_px"] = float(cnt)
-
-    stats["total_px"] = float(class_map.size)
-
-    if transform is None:
-        logger.warning(
-            "Source profile has no affine transform — km² stats unavailable."
-        )
-        return stats
-
-    pixel_w_m   = abs(transform.a)
-    pixel_h_m   = abs(transform.e)
-    pixel_area  = pixel_w_m * pixel_h_m          # m²
-    to_km2      = pixel_area / 1_000_000.0       # m² → km²
-
-    for cls_id, name in CLASS_LABELS.items():
-        px_key  = f"{name.lower()}_px"
-        km2_key = f"{name.lower()}_km2"
-        stats[km2_key] = round(stats[px_key] * to_km2, 4)
-
-    stats["total_km2"]        = round(stats["total_px"] * to_km2, 4)
-    stats["pixel_size_m"]     = round(pixel_w_m, 2)
-    stats["cloud_fraction"]   = round(
-        stats.get("cloud_km2", 0) / max(stats["total_km2"], 1e-9), 6
-    )
-    stats["shadow_fraction"]  = round(
-        stats.get("shadow_km2", 0) / max(stats["total_km2"], 1e-9), 6
-    )
+        stats[name] = {
+            "px_count": float(cnt),
+            "area_km2": round(cnt * to_km2, 4),
+            "percentage": round((cnt / max(total_px, 1)) * 100.0, 2)
+        }
 
     logger.info(
-        "Area stats — GSD=%.1f m  | Cloud=%.2f km² (%.1f %%)  | Shadow=%.2f km² (%.1f %%)",
-        pixel_w_m,
-        stats.get("cloud_km2", 0),  stats.get("cloud_fraction", 0) * 100,
-        stats.get("shadow_km2", 0), stats.get("shadow_fraction", 0) * 100,
+        "Area stats — Cloud: %.2f km² (%.1f%%) | Shadow: %.2f km² (%.1f%%)",
+        stats.get("Cloud", {}).get("area_km2", 0.0), stats.get("Cloud", {}).get("percentage", 0.0),
+        stats.get("Shadow", {}).get("area_km2", 0.0), stats.get("Shadow", {}).get("percentage", 0.0),
     )
     return stats
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
