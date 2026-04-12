@@ -910,13 +910,13 @@ streamlit run src/dashboard/app.py --server.maxUploadSize 2048
 - [x] Module 4: Dice Loss + Metrics
 - [x] Module 5: Sliding-Window Inference + Georeferenced Output
 - [x] Module 6: Streamlit Dashboard with Leafmap
-- [ ] Sentinel-2 Level-1C → Level-2A atmospheric correction integration
-- [ ] Model export to ONNX for cross-framework deployment
-- [ ] Ensemble inference (multiple checkpoint averaging)
-- [ ] Active learning loop for iterative dataset expansion
-- [ ] REST API wrapper (FastAPI) for programmatic access
-- [ ] Docker container for one-command deployment
-- [ ] Benchmark against FMask, Sen2Cor, and s2cloudless
+- [x] Sentinel-2 Level-1C → Level-2A atmospheric correction integration
+- [x] Model export to ONNX for cross-framework deployment
+- [x] Ensemble inference (multiple checkpoint averaging)
+- [x] Active learning loop for iterative dataset expansion
+- [x] REST API wrapper (FastAPI) for programmatic access
+- [x] Docker container for one-command deployment
+- [x] Benchmark against FMask, Sen2Cor, and s2cloudless
 
 ---
 

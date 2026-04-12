@@ -101,7 +101,7 @@ def _read_source(path: Path) -> tuple[np.ndarray, dict]:
 # ─── sliding window inference ─────────────────────────────────────────────────
 
 def sliding_window_predict(
-    model,
+    models: list,
     image: np.ndarray,
     patch_size: int = 256,
     overlap: float = 0.25,
@@ -110,7 +110,7 @@ def sliding_window_predict(
     """Run model inference over a full-scene image with overlapping tiles.
 
     Args:
-        model:      Loaded Keras model with softmax output (H, W, num_classes).
+        models:     List of loaded Keras models with softmax output (H, W, num_classes).
         image:      float32 (H, W, 4) normalised scene array.
         patch_size: Spatial size of each inference tile.
         overlap:    Fractional overlap between adjacent tiles.
@@ -122,7 +122,7 @@ def sliding_window_predict(
     from src.preprocessing.preprocess import generate_patch_coords
 
     h, w = image.shape[:2]
-    num_classes = model.output_shape[-1]
+    num_classes = models[0].output_shape[-1]
 
     # Accumulation arrays for weighted blending
     prob_accum = np.zeros((h, w, num_classes), dtype=np.float64)
@@ -143,7 +143,8 @@ def sliding_window_predict(
         ).astype(np.float32)
 
         # Shape: (mini_batch, H, W, num_classes)
-        preds = model.predict(patches, verbose=0)
+        ensemble_preds = [m.predict(patches, verbose=0) for m in models]
+        preds = np.mean(ensemble_preds, axis=0)
 
         for (r0, r1, c0, c1), pred in zip(batch_coords, preds):
             # pred: (patch_size, patch_size, num_classes) float32
@@ -277,7 +278,7 @@ def compute_area_statistics(
 def run_inference(
     input_path: Path,
     output_path: Path,
-    model_path: Path,
+    model_paths: list[Path],
     patch_size: int = 256,
     overlap: float = 0.25,
     batch_size: int = 8,
@@ -287,7 +288,7 @@ def run_inference(
     Args:
         input_path:  Path to 4-band source GeoTIFF.
         output_path: Path for predicted mask GeoTIFF.
-        model_path:  Path to saved Keras model weights or SavedModel dir.
+        model_paths: List of paths to saved Keras model weights or SavedModel dirs.
         patch_size:  Inference tile size.
         overlap:     Tile overlap fraction.
         batch_size:  Mini-batch size for model.predict().
@@ -297,18 +298,20 @@ def run_inference(
     """
     import tensorflow as tf
 
-    # Load model
-    logger.info("Loading model from %s …", model_path)
+    # Load models
     from src.model.losses import CombinedLoss, DiceCoefficient, MeanIoU
-
-    model = tf.keras.models.load_model(
-        str(model_path),
-        custom_objects={
-            "CombinedLoss": CombinedLoss,
-            "DiceCoefficient": DiceCoefficient,
-            "MeanIoU": MeanIoU,
-        },
-    )
+    models = []
+    for model_path in model_paths:
+        logger.info("Loading model from %s …", model_path)
+        m = tf.keras.models.load_model(
+            str(model_path),
+            custom_objects={
+                "CombinedLoss": CombinedLoss,
+                "DiceCoefficient": DiceCoefficient,
+                "MeanIoU": MeanIoU,
+            },
+        )
+        models.append(m)
 
     # Read & preprocess source scene
     logger.info("Reading source GeoTIFF: %s", input_path)
@@ -316,7 +319,7 @@ def run_inference(
 
     # Sliding-window prediction
     class_map = sliding_window_predict(
-        model, image,
+        models, image,
         patch_size=patch_size,
         overlap=overlap,
         batch_size=batch_size,
@@ -339,7 +342,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model",
         type=Path,
-        default=Path(os.environ.get("MODEL_PATH", "models/best_weights.h5")),
+        nargs="+",
+        default=[Path(os.environ.get("MODEL_PATH", "models/best_weights.h5"))],
     )
     parser.add_argument("--patch_size", type=int, default=256)
     parser.add_argument("--overlap", type=float, default=0.25)
@@ -352,7 +356,7 @@ if __name__ == "__main__":
     run_inference(
         input_path=args.input,
         output_path=args.output,
-        model_path=args.model,
+        model_paths=args.model,
         patch_size=args.patch_size,
         overlap=args.overlap,
         batch_size=args.batch_size,

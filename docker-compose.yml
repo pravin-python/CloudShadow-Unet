@@ -1,0 +1,39 @@
+version: "3.9"
+services:
+  # FastAPI REST backend
+  api:
+    build: .
+    container_name: cloudshadow_api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+    environment:
+      - MODEL_PATH=models/best_weights.h5
+      - PATCH_SIZE=256
+      - OVERLAP=0.25
+    command: ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    # Optional: uncomment to enable GPU support (requires nvidia-docker2 on host)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Streamlit Dashboard UI
+  dashboard:
+    build: .
+    container_name: cloudshadow_dashboard
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+    environment:
+      - MODEL_PATH=models/best_weights.h5
+      - PATCH_SIZE=256
+      - OVERLAP=0.25
+    command: ["streamlit", "run", "src/dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
