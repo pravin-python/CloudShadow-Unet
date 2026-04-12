@@ -1,6 +1,19 @@
+from pathlib import Path
 import pytest
 import numpy as np
-from geospatial_utils import generate_tile_coords, cosine_bell_mask, stitch_predictions
+from geospatial_utils import generate_tile_coords, cosine_bell_mask, stitch_predictions, read_scene
+
+def test_read_scene_band_error(mocker):
+    # Mock rasterio.open to simulate a file with only 3 bands
+    mock_src = mocker.MagicMock()
+    mock_src.__enter__.return_value = mock_src
+    mock_src.count = 3
+
+    mocker.patch('geospatial_utils.rasterio.open', return_value=mock_src)
+
+    # Calling read_scene with default expected_bands=4 (indices 1, 2, 3, 4)
+    with pytest.raises(ValueError, match="has 3 band\\(s\\); requested indices \\(1, 2, 3, 4\\) require at least 4"):
+        read_scene(Path("dummy.tif"), band_indices=(1, 2, 3, 4))
 
 def test_generate_tile_coords():
     coords = generate_tile_coords(1000, 1000, 256, 0.5)
