@@ -1,0 +1,38 @@
+# CloudShadow-UNet — Baseline Training Configuration
+# ---------------------------------------------------
+# Run: python src/training/train.py --config configs/unet_baseline.yaml
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+patch_size: 256          # Spatial size of training tiles (pixels)
+overlap: 0.25            # Sliding-window overlap during preprocessing
+val_fraction: 0.15       # Fraction of patches held out for validation
+seed: 42                 # Global random seed for reproducibility
+
+# ── Model architecture ────────────────────────────────────────────────────────
+num_classes: 3           # Background, Cloud, Shadow
+base_filters: 64         # Conv filters in the first encoder block
+depth: 4                 # Number of encoder/decoder stages
+dropout_rate: 0.10       # Dropout rate in encoder/decoder conv blocks
+bottleneck_dropout: 0.30 # Higher dropout in the bottleneck
+
+# ── Training ──────────────────────────────────────────────────────────────────
+epochs: 100
+batch_size: 8            # Increase to 16 if GPU VRAM > 16 GB
+learning_rate: 0.0001    # Adam initial LR
+dice_alpha: 0.70         # Weight of Dice Loss vs CCE (0.7 = 70% Dice)
+
+# ── Callbacks ─────────────────────────────────────────────────────────────────
+reduce_lr_patience: 5    # Epochs before ReduceLROnPlateau halves LR
+early_stop_patience: 15  # Epochs before EarlyStopping aborts training
+
+# ── System ────────────────────────────────────────────────────────────────────
+mixed_precision: false   # Set true to use float16 compute on Ampere+ GPUs
+workers: 4               # CPU workers for data loading
+use_multiprocessing: true
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+# Override via environment variables: DATA_DIR, MODEL_PATH, LOG_DIR
+log_dir: logs
+
+# ── Optional: resume training from checkpoint ─────────────────────────────────
+# resume_checkpoint: models/best_weights.h5

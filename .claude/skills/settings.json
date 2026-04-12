@@ -1,0 +1,87 @@
+{
+  "skills": {
+    "enabled": true,
+    "autoLoad": true,
+    "directory": "./skills",
+    "triggerMode": "description-match",
+    "loadStrategy": "lazy",
+    "maxConcurrentSkills": 2
+  },
+
+  "context": {
+    "maxTokens": 8192,
+    "includeProjectInstructions": true,
+    "includeMemory": true,
+    "memoryTypes": ["user", "feedback", "project", "reference"],
+    "trimStrategy": "recency-weighted"
+  },
+
+  "model": {
+    "defaultModel": "claude-sonnet-4-6",
+    "temperature": 0.3,
+    "topP": 0.95,
+    "thinkingBudget": "auto"
+  },
+
+  "output": {
+    "defaultFormat": "markdown",
+    "codeStyle": {
+      "indentSize": 2,
+      "useTabs": false,
+      "trailingComma": "es5",
+      "singleQuote": true,
+      "semicolons": true
+    },
+    "fileNaming": "kebab-case",
+    "saveToWorkspace": true,
+    "workspaceDir": "./outputs"
+  },
+
+  "performance": {
+    "streamResponses": true,
+    "cacheSkillContent": true,
+    "cacheTTLSeconds": 3600,
+    "batchToolCalls": true,
+    "parallelSubagents": true
+  },
+
+  "safety": {
+    "confirmDestructiveActions": true,
+    "requireApprovalForExternalCalls": false,
+    "sandboxCodeExecution": true,
+    "logAllToolCalls": false
+  },
+
+  "skills_registry": {
+    "frontend-design": {
+      "file": "frontend-design/SKILL.md",
+      "triggers": ["design", "UI", "frontend", "layout", "landing page", "glassmorphism", "dark theme", "hero section", "component", "premium look"],
+      "pairs_with": ["ui-ux-pro-max"]
+    },
+    "ui-ux-pro-max": {
+      "file": "ui-ux-pro-max/SKILL.md",
+      "triggers": ["UX", "user flow", "onboarding", "conversion", "friction", "user journey", "micro-interaction", "accessibility"],
+      "pairs_with": ["frontend-design"]
+    },
+    "seo": {
+      "file": "seo/SKILL.md",
+      "triggers": ["SEO", "rank", "keyword", "meta tag", "organic traffic", "search engine", "Core Web Vitals", "sitemap", "schema markup"],
+      "pairs_with": []
+    },
+    "code-review": {
+      "file": "code-review/SKILL.md",
+      "triggers": ["review", "refactor", "code quality", "best practices", "optimize", "clean code", "code smell", "performance"],
+      "pairs_with": ["owasp-security"]
+    },
+    "remotion": {
+      "file": "remotion/SKILL.md",
+      "triggers": ["Remotion", "programmatic video", "animated video", "React video", "motion graphics", "video generation", "interpolate", "useCurrentFrame"],
+      "pairs_with": ["frontend-design"]
+    },
+    "owasp-security": {
+      "file": "owasp-security/SKILL.md",
+      "triggers": ["security", "OWASP", "vulnerability", "SQL injection", "XSS", "CSRF", "authentication", "JWT", "secure code", "API security"],
+      "pairs_with": ["code-review"]
+    }
+  }
+}

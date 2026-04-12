@@ -1,0 +1,31 @@
+# CloudShadow-UNet — Python dependencies
+# Install: pip install -r requirements.txt
+
+# ── Core ML stack ─────────────────────────────────────────────────────────────
+tensorflow>=2.13,<2.17       # Keras 2 API (tf.keras)
+numpy>=1.24,<2.0
+
+# ── Geospatial I/O ────────────────────────────────────────────────────────────
+rasterio>=1.3.8
+GDAL>=3.6.0                  # rasterio backend; install via conda or apt on Linux
+pyproj>=3.5.0                # CRS transformations
+shapely>=2.0.0
+
+# ── Image processing ──────────────────────────────────────────────────────────
+opencv-python-headless>=4.8.0   # CLAHE + image ops (headless = no Qt UI dep)
+
+# ── Dashboard ─────────────────────────────────────────────────────────────────
+streamlit>=1.35.0
+leafmap>=0.30.0
+folium>=0.15.0
+streamlit-folium>=0.20.0
+streamlit-image-comparison>=0.0.4  # Before/after slider widget
+
+# ── Data utilities ────────────────────────────────────────────────────────────
+pandas>=2.0.0
+pyyaml>=6.0.1
+
+# ── Notebook / development (optional) ────────────────────────────────────────
+# jupyter>=1.0.0
+# matplotlib>=3.7.0
+# ipykernel>=6.25.0
