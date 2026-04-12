@@ -47,7 +47,6 @@ Run:
 
 from __future__ import annotations
 
-import io
 import logging
 import os
 import sys
@@ -357,7 +356,7 @@ def _render_sidebar() -> dict:
             ft_uploaded_image_bytes, ft_uploaded_mask_bytes,
             ft_epochs, start_finetune
     """
-    st.sidebar.header("🛰️ CloudShadow-UNet")
+    st.sidebar.title("🛰️ CloudShadow-UNet")
     st.sidebar.caption("Satellite Segmentation Dashboard")
     st.sidebar.markdown("---")
 
@@ -440,9 +439,10 @@ def _render_sidebar() -> dict:
 
     # ── Legend ────────────────────────────────────────────────────────────────
     st.sidebar.markdown("**Class Legend**")
+    emoji_map = {0: "🔵", 1: "⬜", 2: "🟦"}
     for cls_id, name in CLASS_NAMES.items():
-        emoji = {0: "🔵", 1: "⬜", 2: "🟦"}.get(cls_id, "🔹")
-        st.sidebar.write(f"{emoji} {cls_id} — {name}")
+        emoji = emoji_map.get(cls_id, "▪️")
+        st.sidebar.markdown(f"{emoji} **{cls_id}** — {name}")
 
     return {
         "model_path":               model_path,
