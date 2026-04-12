@@ -294,10 +294,11 @@ class CloudPatchDataset(tf.keras.utils.Sequence):
     def _one_hot(mask: np.ndarray) -> np.ndarray:
         """Convert (H, W) uint8 label map → (H, W, NUM_CLASSES) float32.
 
-        Labels outside [0, NUM_CLASSES-1] are clipped to 0 (background)
+        Labels outside [0, NUM_CLASSES-1] are mapped to 0 (background)
         to handle stray annotation artefacts gracefully without crashing.
         """
-        mask = np.clip(mask, 0, NUM_CLASSES - 1).astype(np.int32)
+        # Map values >= NUM_CLASSES to 0
+        mask = np.where(mask >= NUM_CLASSES, 0, mask).astype(np.int32)
         return tf.keras.utils.to_categorical(mask, num_classes=NUM_CLASSES).astype(np.float32)
 
     # ── class utilities ───────────────────────────────────────────────────────
