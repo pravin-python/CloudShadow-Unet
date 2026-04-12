@@ -135,7 +135,6 @@ def merge_bands_to_geotiff(
         output_path: Destination 4-band GeoTIFF path.
     """
     import rasterio
-    from rasterio.transform import from_bounds
 
     band_order = ["red", "green", "blue", "nir"]
     bands: list[np.ndarray] = []
