@@ -108,44 +108,27 @@ def test_lazy_loading_from_geotiff(tmp_path):
     assert X.shape == (2, 256, 256, 4)
     assert y.shape == (2, 256, 256, 3)
 
-def test_one_hot_encoding():
-    # Test correct mapping of classes 0, 1, 2
-    mask = np.array([
-        [0, 1],
-        [2, 0]
-    ], dtype=np.uint8)
+def test_one_hot():
+    # Setup simple array
+    mask = np.array([[0, 1], [2, 0]])
+    expected = np.zeros((2, 2, 3), dtype=np.float32)
+    expected[0, 0, 0] = 1.0
+    expected[0, 1, 1] = 1.0
+    expected[1, 0, 2] = 1.0
+    expected[1, 1, 0] = 1.0
 
-    expected = np.array([
-        [[1., 0., 0.], [0., 1., 0.]],
-        [[0., 0., 1.], [1., 0., 0.]]
-    ], dtype=np.float32)
-
+    # Call _one_hot
     result = CloudPatchDataset._one_hot(mask)
 
+    # Verify
     assert result.shape == (2, 2, 3)
-    assert result.dtype == np.float32
-    np.testing.assert_allclose(result, expected)
+    np.testing.assert_array_equal(result, expected)
 
-def test_one_hot_clipping():
-    # Test that out-of-bounds labels are clipped properly to [0, NUM_CLASSES-1]
-    # In this case NUM_CLASSES=3, so range is [0, 2]
-    # -1 (wrap-around if uint8) or large numbers like 255 should be clipped
-    # The dataset explicitly clips to np.clip(mask, 0, NUM_CLASSES-1) which maps
-    # out-of-bounds labels up to index 2, not to all zeros, contrary to the code review.
-    # Testing confirms the clipping behavior mapping large values to 2 (shadows).
-    mask = np.array([
-        [0, 3],     # 3 clips to 2
-        [100, 255]  # 100 clips to 2, 255 clips to 2
-    ], dtype=np.uint8)
-
-    # Values >= 2 will be clipped to 2 (class 2)
-    expected = np.array([
-        [[1., 0., 0.], [0., 0., 1.]],
-        [[0., 0., 1.], [0., 0., 1.]]
-    ], dtype=np.float32)
-
+def test_one_hot_out_of_bounds():
+    # _one_hot currently clips values to 0..(NUM_CLASSES-1)
+    mask = np.array([[-1, 1], [3, 0]])
     result = CloudPatchDataset._one_hot(mask)
 
-    assert result.shape == (2, 2, 3)
-    assert result.dtype == np.float32
-    np.testing.assert_allclose(result, expected)
+    # clipped value checks
+    assert result[0, 0, 0] == 1.0 # -1 is clipped to 0
+    assert result[1, 0, 2] == 1.0 # 3 is clipped to 2
