@@ -47,7 +47,6 @@ if str(root_dir) not in sys.path:
  
 import numpy as np
 import rasterio
-from rasterio.transform import from_bounds
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
