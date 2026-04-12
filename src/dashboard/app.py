@@ -33,8 +33,14 @@ from __future__ import annotations
 import io
 import logging
 import os
+import sys
 import tempfile
 from pathlib import Path
+
+# Add project root to sys.path to resolve 'src' module
+root_dir = Path(__file__).resolve().parent.parent.parent
+if str(root_dir) not in sys.path:
+    sys.path.insert(0, str(root_dir))
 
 import numpy as np
 import streamlit as st

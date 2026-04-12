@@ -37,8 +37,14 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import sys
 from pathlib import Path
 
+# Add project root to sys.path to resolve 'src' module
+root_dir = Path(__file__).resolve().parent.parent.parent
+if str(root_dir) not in sys.path:
+    sys.path.insert(0, str(root_dir))
+ 
 import numpy as np
 import rasterio
 from rasterio.transform import from_bounds

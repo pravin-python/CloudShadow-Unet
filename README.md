@@ -162,6 +162,11 @@ CloudShadow-Unet/
 ├── outputs/
 │   └── predicted_mask.tif        ← Georeferenced prediction output
 │
+├── scripts/
+│   ├── download_38cloud.py       ← Automated downloader for 38-Cloud/95-Cloud
+│   ├── download_sentinel2.py     ← Downloader for fresh Sentinel-2 imagery
+│   └── create_synthetic_demo.py  ← Generates random data for quick testing
+│
 ├── src/
 │   ├── preprocessing/
 │   │   └── preprocess.py         ← MODULE 1: GeoTIFF reading, CLAHE, tiling
@@ -181,6 +186,7 @@ CloudShadow-Unet/
 │       └── app.py                ← MODULE 6: Streamlit web dashboard
 │
 ├── requirements.txt              ← All Python dependencies
+├── LICENSE                       ← MIT License
 └── README.md                     ← This file
 ```
 
@@ -382,8 +388,25 @@ Follow these steps in order. Each step feeds into the next.
 
 ---
 
-### Step 1 — Place Your Data
+### Step 1 — Get Your Data
 
+You can either place your own data manually or use the automated download scripts:
+
+**A. Automated Download (38-Cloud / 95-Cloud)**
+Recommended for beginners. Requires a Kaggle account.
+```bash
+# Downloads 95-Cloud (includes cloud + shadow labels)
+python scripts/download_38cloud.py --source kaggle --dataset 95cloud
+```
+
+**B. Automated Download (Sentinel-2)**
+Downloads fresh imagery from Copernicus Data Space. Requires a free [CDSE account](https://dataspace.copernicus.eu/).
+```bash
+python scripts/download_sentinel2.py --username YOUR_USER --password YOUR_PASS --bbox "lon_min,lat_min,lon_max,lat_max" --date_start 2024-01-01 --date_end 2024-01-30
+```
+
+**C. Manual Placement**
+Place your 4-band GeoTIFFs (Red, Green, Blue, NIR) and their corresponding masks here:
 ```
 data/raw/
 ├── scene_001.tif          ← 4-band GeoTIFF
@@ -899,6 +922,13 @@ Add `--server.maxUploadSize` flag:
 ```bash
 streamlit run src/dashboard/app.py --server.maxUploadSize 2048
 ```
+
+### `error: Microsoft Visual C++ 14.0 or greater is required` (Windows)
+This occurs when installing `GDAL` via pip on Windows. 
+**Fix:** You do NOT need the standalone `GDAL` python package on Windows because `rasterio` bundles its own GDAL binaries. 
+1. Open `requirements.txt`.
+2. Comment out the `GDAL==3.8.4` line.
+3. Run `pip install -r requirements.txt` again.
 
 ---
 
