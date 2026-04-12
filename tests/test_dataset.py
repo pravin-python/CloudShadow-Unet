@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 import tensorflow as tf
 from pathlib import Path
-from dataset import CloudPatchDataset
+from dataset import CloudPatchDataset, DatasetConfig
 from geospatial_utils import save_patches, generate_tile_coords, extract_patches
 import rasterio
 
@@ -25,7 +25,7 @@ def test_dataset_generator(tmp_path):
         np.save(image_dir / f"patch_{i}.npy", img)
         np.save(mask_dir / f"patch_{i}.npy", mask)
 
-    dataset = CloudPatchDataset(
+    config = DatasetConfig(
         image_dir=image_dir,
         mask_dir=mask_dir,
         batch_size=4,
@@ -34,6 +34,7 @@ def test_dataset_generator(tmp_path):
         shuffle=False,
         seed=42
     )
+    dataset = CloudPatchDataset(config)
 
     # test __len__
     assert len(dataset) == 3 # 10 samples / 4 batch size = ceil(2.5) = 3
@@ -93,7 +94,7 @@ def test_lazy_loading_from_geotiff(tmp_path):
     # save patches logic acts as the lazy mechanism bridge from full arrays to disk chunks
     save_patches(img_patches, mask_patches, image_dir, mask_dir, "test_scene")
 
-    dataset = CloudPatchDataset(
+    config = DatasetConfig(
         image_dir=image_dir,
         mask_dir=mask_dir,
         batch_size=2,
@@ -102,6 +103,7 @@ def test_lazy_loading_from_geotiff(tmp_path):
         shuffle=False,
         seed=42
     )
+    dataset = CloudPatchDataset(config)
 
     assert len(dataset) == 3
     X, y = dataset[0]
