@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 import tensorflow as tf
-from model import MultiClassDiceLoss, DiceCoefficient, MeanIoU, CombinedDiceCELoss
+from model import MultiClassDiceLoss, DiceCoefficient, MeanIoU, CombinedDiceCELoss, configure_precision
 
 def test_multi_class_dice_loss():
     loss_fn = MultiClassDiceLoss()
@@ -58,3 +58,60 @@ def test_mean_iou_metric():
 
     metric.update_state(y_true, y_pred)
     assert np.isclose(metric.result().numpy(), 1.0)
+
+
+def test_configure_precision_invalid():
+    with pytest.raises(ValueError, match="policy must be one of"):
+        configure_precision("invalid_policy")
+
+def test_configure_precision_explicit(mocker):
+    # Mock set_global_policy so we don't actually change the state in tests
+    mock_set = mocker.patch("tensorflow.keras.mixed_precision.set_global_policy")
+
+    assert configure_precision("bfloat16") == "bfloat16"
+    mock_set.assert_called_with("bfloat16")
+
+    assert configure_precision("float16") == "float16"
+    mock_set.assert_called_with("float16")
+
+    assert configure_precision("float32") == "float32"
+    mock_set.assert_called_with("float32")
+
+def test_configure_precision_auto_no_gpu(mocker):
+    mock_set = mocker.patch("tensorflow.keras.mixed_precision.set_global_policy")
+    mocker.patch("tensorflow.config.list_physical_devices", return_value=[])
+
+    assert configure_precision("auto") == "float32"
+    mock_set.assert_called_with("float32")
+
+def test_configure_precision_auto_gpu_ampere(mocker):
+    mock_set = mocker.patch("tensorflow.keras.mixed_precision.set_global_policy")
+    mocker.patch("tensorflow.config.list_physical_devices", return_value=["GPU:0"])
+    mocker.patch("tensorflow.config.experimental.get_device_details", return_value={"compute_capability": (8, 0)})
+
+    assert configure_precision("auto") == "bfloat16"
+    mock_set.assert_called_with("bfloat16")
+
+def test_configure_precision_auto_gpu_turing(mocker):
+    mock_set = mocker.patch("tensorflow.keras.mixed_precision.set_global_policy")
+    mocker.patch("tensorflow.config.list_physical_devices", return_value=["GPU:0"])
+    mocker.patch("tensorflow.config.experimental.get_device_details", return_value={"compute_capability": (7, 5)})
+
+    assert configure_precision("auto") == "float16"
+    mock_set.assert_called_with("float16")
+
+def test_configure_precision_auto_gpu_older(mocker):
+    mock_set = mocker.patch("tensorflow.keras.mixed_precision.set_global_policy")
+    mocker.patch("tensorflow.config.list_physical_devices", return_value=["GPU:0"])
+    mocker.patch("tensorflow.config.experimental.get_device_details", return_value={"compute_capability": (6, 0)})
+
+    assert configure_precision("auto") == "float32"
+    mock_set.assert_called_with("float32")
+
+def test_configure_precision_auto_exception(mocker):
+    mock_set = mocker.patch("tensorflow.keras.mixed_precision.set_global_policy")
+    mocker.patch("tensorflow.config.list_physical_devices", return_value=["GPU:0"])
+    mocker.patch("tensorflow.config.experimental.get_device_details", side_effect=Exception("Failed to get details"))
+
+    assert configure_precision("auto") == "float16"
+    mock_set.assert_called_with("float16")
