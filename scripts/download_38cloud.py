@@ -89,11 +89,9 @@ def download_from_kaggle(dataset_key: str, dest_dir: Path) -> Path:
     Raises:
         SystemExit: If kaggle CLI is not installed or credentials are missing.
     """
-    try:
-        import kaggle  # noqa: F401 — just checking it's importable
-    except ImportError:
+    if shutil.which("kaggle") is None:
         logger.error(
-            "kaggle package not installed.\n"
+            "kaggle CLI not found.\n"
             "Run: pip install kaggle\n"
             "Then set up credentials: https://www.kaggle.com/docs/api"
         )
