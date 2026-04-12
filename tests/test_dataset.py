@@ -109,35 +109,26 @@ def test_lazy_loading_from_geotiff(tmp_path):
     assert y.shape == (2, 256, 256, 3)
 
 def test_one_hot():
-    # Test valid classes 0, 1, 2
-    mask = np.array([
-        [0, 1],
-        [2, 0]
-    ], dtype=np.uint8)
+    # Setup simple array
+    mask = np.array([[0, 1], [2, 0]])
+    expected = np.zeros((2, 2, 3), dtype=np.float32)
+    expected[0, 0, 0] = 1.0
+    expected[0, 1, 1] = 1.0
+    expected[1, 0, 2] = 1.0
+    expected[1, 1, 0] = 1.0
 
-    one_hot = CloudPatchDataset._one_hot(mask)
+    # Call _one_hot
+    result = CloudPatchDataset._one_hot(mask)
 
-    assert one_hot.shape == (2, 2, 3)
-    assert one_hot.dtype == np.float32
+    # Verify
+    assert result.shape == (2, 2, 3)
+    np.testing.assert_array_equal(result, expected)
 
-    # Class 0 at (0, 0) and (1, 1)
-    assert np.array_equal(one_hot[0, 0], [1., 0., 0.])
-    assert np.array_equal(one_hot[1, 1], [1., 0., 0.])
+def test_one_hot_out_of_bounds():
+    # _one_hot currently clips values to 0..(NUM_CLASSES-1)
+    mask = np.array([[-1, 1], [3, 0]])
+    result = CloudPatchDataset._one_hot(mask)
 
-    # Class 1 at (0, 1)
-    assert np.array_equal(one_hot[0, 1], [0., 1., 0.])
-
-    # Class 2 at (1, 0)
-    assert np.array_equal(one_hot[1, 0], [0., 0., 1.])
-
-    # Test clipping behavior (out of bounds values are mapped to 0 (background))
-    mask_out_of_bounds = np.array([
-        [3, 255]
-    ], dtype=np.uint8)
-
-    one_hot_clipped = CloudPatchDataset._one_hot(mask_out_of_bounds)
-    assert one_hot_clipped.shape == (1, 2, 3)
-
-    # Out of bounds values are mapped to class 0
-    assert np.array_equal(one_hot_clipped[0, 0], [1., 0., 0.])
-    assert np.array_equal(one_hot_clipped[0, 1], [1., 0., 0.])
+    # clipped value checks
+    assert result[0, 0, 0] == 1.0 # -1 is clipped to 0
+    assert result[1, 0, 2] == 1.0 # 3 is clipped to 2

@@ -47,12 +47,10 @@ Run:
 
 from __future__ import annotations
 
-import io
 import logging
 import os
 import sys
 import tempfile
-import threading
 from pathlib import Path
 
 import numpy as np
@@ -357,11 +355,8 @@ def _render_sidebar() -> dict:
             ft_uploaded_image_bytes, ft_uploaded_mask_bytes,
             ft_epochs, start_finetune
     """
-    st.sidebar.markdown(
-        "<h2 style='color:#1E90FF;'>🛰️ CloudShadow-UNet</h2>"
-        "<p style='color:#888;font-size:0.85rem;'>Satellite Segmentation Dashboard</p>",
-        unsafe_allow_html=True,
-    )
+    st.sidebar.title("🛰️ CloudShadow-UNet")
+    st.sidebar.caption("Satellite Segmentation Dashboard")
     st.sidebar.markdown("---")
 
     # ── Model settings ────────────────────────────────────────────────────────
@@ -443,16 +438,10 @@ def _render_sidebar() -> dict:
 
     # ── Legend ────────────────────────────────────────────────────────────────
     st.sidebar.markdown("**Class Legend**")
+    emoji_map = {0: "🔵", 1: "⬜", 2: "🟦"}
     for cls_id, name in CLASS_NAMES.items():
-        hex_col = LEGEND_HEX[cls_id]
-        border  = "border:1px solid #555;" if cls_id == 1 else ""
-        st.sidebar.markdown(
-            f"<div style='display:flex;align-items:center;margin:2px 0'>"
-            f"<span style='width:16px;height:16px;background:{hex_col};"
-            f"{border}display:inline-block;margin-right:8px;border-radius:3px'></span>"
-            f"<span>{cls_id} — {name}</span></div>",
-            unsafe_allow_html=True,
-        )
+        emoji = emoji_map.get(cls_id, "▪️")
+        st.sidebar.markdown(f"{emoji} **{cls_id}** — {name}")
 
     return {
         "model_path":               model_path,
@@ -834,12 +823,8 @@ def main() -> None:
     cfg = _render_sidebar()
 
     # ── Page header ───────────────────────────────────────────────────────────
-    st.markdown(
-        "<h1 style='font-size:2rem;'>🛰️ CloudShadow-UNet</h1>"
-        "<p style='color:#666;'>Satellite Cloud & Shadow Segmentation · "
-        "Deep Learning Pipeline · Real-time GIS Dashboard</p>",
-        unsafe_allow_html=True,
-    )
+    st.title("🛰️ CloudShadow-UNet")
+    st.caption("Satellite Cloud & Shadow Segmentation · Deep Learning Pipeline · Real-time GIS Dashboard")
     st.markdown("---")
 
     # ── No file uploaded state ────────────────────────────────────────────────
@@ -859,18 +844,12 @@ def main() -> None:
                 "> ```"
             )
         with col_r:
-            st.markdown(
-                "<div style='background:#0e1117;border:1px solid #333;"
-                "border-radius:8px;padding:16px'>"
-                "<h4 style='color:#1E90FF'>Model Status</h4>"
-                + (
-                    "<p style='color:#00c853'>✅ Model loaded and ready</p>"
-                    if _load_model(cfg["model_path"]) is not None
-                    else "<p style='color:#ff5252'>⚠️ No model found at the specified path</p>"
-                )
-                + "</div>",
-                unsafe_allow_html=True,
-            )
+            with st.container(border=True):
+                st.subheader("Model Status")
+                if _load_model(cfg["model_path"]) is not None:
+                    st.success("✅ Model loaded and ready")
+                else:
+                    st.error("⚠️ No model found at the specified path")
 
         with st.expander("📚 How to prepare your data"):
             st.markdown(
