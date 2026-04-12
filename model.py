@@ -410,8 +410,8 @@ class DiceCoefficient(tf.keras.metrics.Metric):
         super().__init__(name=name)
         self.num_classes = num_classes
         self.smooth = smooth
-        self._inter = self.add_weight("inter", shape=(num_classes,), initializer="zeros")
-        self._denom = self.add_weight("denom", shape=(num_classes,), initializer="zeros")
+        self._inter = self.add_weight(name="inter", shape=(num_classes,), initializer="zeros")
+        self._denom = self.add_weight(name="denom", shape=(num_classes,), initializer="zeros")
 
     def update_state(
         self,
@@ -460,8 +460,8 @@ class MeanIoU(tf.keras.metrics.Metric):
         super().__init__(name=name)
         self.num_classes = num_classes
         self.smooth = smooth
-        self._inter = self.add_weight("inter", shape=(num_classes,), initializer="zeros")
-        self._union = self.add_weight("union", shape=(num_classes,), initializer="zeros")
+        self._inter = self.add_weight(name="inter", shape=(num_classes,), initializer="zeros")
+        self._union = self.add_weight(name="union", shape=(num_classes,), initializer="zeros")
 
     def update_state(
         self,
