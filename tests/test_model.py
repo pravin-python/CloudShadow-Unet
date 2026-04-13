@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 import tensorflow as tf
-from model import MultiClassDiceLoss, DiceCoefficient, MeanIoU, CombinedDiceCELoss
+from model import MultiClassDiceLoss, DiceCoefficient, MeanIoU, CombinedDiceCELoss, _conv_relu_block
 
 def test_multi_class_dice_loss():
     loss_fn = MultiClassDiceLoss()
@@ -48,6 +48,40 @@ def test_dice_coefficient_metric():
     metric.update_state(y_true, y_pred)
     assert np.isclose(metric.result().numpy(), 1.0)
 
+def test_conv_relu_block_no_dropout():
+    """Test _conv_relu_block output shape and layers without dropout."""
+    inputs = tf.keras.Input(shape=(256, 256, 4))
+    outputs = _conv_relu_block(inputs, filters=64, dropout=0.0, name="test_block")
+    model = tf.keras.Model(inputs, outputs)
+
+    # 2 conv layers + 1 input layer
+    assert len(model.layers) == 3
+
+    # Assert layer types
+    layer_types = [type(layer) for layer in model.layers]
+    assert tf.keras.layers.Conv2D in layer_types
+    assert tf.keras.layers.SpatialDropout2D not in layer_types
+
+    # Verify shape
+    assert model.output_shape == (None, 256, 256, 64)
+
+def test_conv_relu_block_with_dropout():
+    """Test _conv_relu_block output shape and layers with dropout."""
+    inputs = tf.keras.Input(shape=(128, 128, 64))
+    outputs = _conv_relu_block(inputs, filters=128, dropout=0.5, name="test_block_drop")
+    model = tf.keras.Model(inputs, outputs)
+
+    # 2 conv layers + 1 spatial dropout + 1 input layer
+    assert len(model.layers) == 4
+
+    # Assert layer types
+    layer_types = [type(layer) for layer in model.layers]
+    assert tf.keras.layers.Conv2D in layer_types
+    assert tf.keras.layers.SpatialDropout2D in layer_types
+
+    # Verify shape
+    assert model.output_shape == (None, 128, 128, 128)
+
 def test_mean_iou_metric():
     metric = MeanIoU()
 
@@ -58,3 +92,31 @@ def test_mean_iou_metric():
 
     metric.update_state(y_true, y_pred)
     assert np.isclose(metric.result().numpy(), 1.0)
+
+def test_dice_coefficient_edge_cases():
+    metric = DiceCoefficient()
+
+    # Edge case 1: All zeros (e.g., testing smoothing/division by zero avoidance)
+    y_true_zeros = np.zeros((1, 2, 2, 3), dtype=np.float32)
+    y_pred_zeros = np.zeros((1, 2, 2, 3), dtype=np.float32)
+
+    metric.update_state(y_true_zeros, y_pred_zeros)
+    assert np.isclose(metric.result().numpy(), 1.0, atol=1e-5)
+
+    metric.reset_state()
+
+    # Edge case 2: Disjoint/completely incorrect predictions across all classes
+    # y_true has 2 pixels class 0, 1 pixel class 1, 1 pixel class 2
+    y_true_disjoint = np.array([
+        [[[1, 0, 0], [0, 1, 0]],
+         [[0, 0, 1], [1, 0, 0]]]
+    ], dtype=np.float32)
+
+    # y_pred is entirely disjoint from y_true, with all classes present
+    y_pred_disjoint = np.array([
+        [[[0, 1, 0], [0, 0, 1]],
+         [[1, 0, 0], [0, 1, 0]]]
+    ], dtype=np.float32)
+
+    metric.update_state(y_true_disjoint, y_pred_disjoint)
+    assert np.isclose(metric.result().numpy(), 0.0, atol=1e-5)

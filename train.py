@@ -309,12 +309,12 @@ def train_from_scratch(cfg: TrainingConfig) -> dict:
     """
     import tensorflow as tf
     from dataset import CloudPatchDataset
-    from model import build_and_compile
+    from model import build_and_compile, ModelConfig
 
     _init_gpus()
 
     # ── Build model ───────────────────────────────────────────────────────────
-    model = build_and_compile(
+    config = ModelConfig(
         input_shape        = (cfg.patch_size, cfg.patch_size, 4),
         num_classes        = 3,
         base_filters       = cfg.base_filters,
@@ -325,6 +325,7 @@ def train_from_scratch(cfg: TrainingConfig) -> dict:
         dice_alpha         = cfg.dice_alpha,
         precision          = cfg.precision,
     )
+    model = build_and_compile(config)
     model.summary(line_length=110)
 
     # Optional: load weights to resume from a previous run
@@ -377,6 +378,53 @@ def train_from_scratch(cfg: TrainingConfig) -> dict:
 #  SECTION 5 — FINE-TUNING / CONTINUOUS LEARNING
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _load_and_compile_model(checkpoint_path: Path, cfg: TrainingConfig, ft_lr: float):
+    """Helper to load and re-compile the model for fine-tuning."""
+    import tensorflow as tf
+    from model import CUSTOM_OBJECTS, CombinedDiceCELoss, DiceCoefficient, MeanIoU
+
+    # Try loading as full SavedModel first; fall back to weights-only h5.
+    try:
+        model = tf.keras.models.load_model(
+            str(checkpoint_path.parent / "final_model.keras"),
+            custom_objects=CUSTOM_OBJECTS,
+        )
+        logger.info("Loaded full SavedModel from '%s'.", checkpoint_path.parent)
+    except Exception:
+        # Weights-only checkpoint: rebuild architecture then load weights
+        from model import build_unet
+        model = build_unet(
+            input_shape        = (cfg.patch_size, cfg.patch_size, 4),
+            num_classes        = 3,
+            base_filters       = cfg.base_filters,
+            depth              = cfg.depth,
+            dropout            = cfg.dropout,
+            bottleneck_dropout = cfg.bottleneck_dropout,
+        )
+        model.load_weights(str(checkpoint_path))
+        logger.info("Loaded weights from '%s'.", checkpoint_path)
+
+    # ── Re-compile with reduced LR ────────────────────────────────────────────
+    model.compile(
+        optimizer = tf.keras.optimizers.Adam(learning_rate=ft_lr),
+        loss      = CombinedDiceCELoss(alpha=cfg.dice_alpha),
+        metrics   = [DiceCoefficient(num_classes=3), MeanIoU(num_classes=3)],
+    )
+    logger.info("Re-compiled model with fine-tune LR = %.2e", ft_lr)
+    return model
+
+def _incorporate_data(cfg: TrainingConfig, new_image_dir: Path, new_mask_dir: Path) -> None:
+    """Helper to merge new image and mask patches into the base training directory."""
+    from dataset import incorporate_new_samples
+    n_new = incorporate_new_samples(
+        new_image_dir  = new_image_dir,
+        new_mask_dir   = new_mask_dir,
+        base_image_dir = cfg.image_dir,
+        base_mask_dir  = cfg.mask_dir,
+        prefix         = f"finetune_{int(time.time())}",
+    )
+    logger.info("Incorporated %d new samples into training pool.", n_new)
+
 def fine_tune(
     checkpoint_path: Path,
     cfg: TrainingConfig,
@@ -384,7 +432,7 @@ def fine_tune(
     new_mask_dir:  Optional[Path] = None,
     fine_tune_lr_scale: float = 0.10,
     fine_tune_epochs: int = 20,
-    progress_callback=None,
+    callbacks: Optional[list] = None,
 ) -> dict:
     """Resume training from an existing checkpoint with optional new data.
 
@@ -409,8 +457,7 @@ def fine_tune(
         new_mask_dir:       Optional new mask patches to incorporate.
         fine_tune_lr_scale: LR multiplier relative to cfg.learning_rate.
         fine_tune_epochs:   Maximum epochs for this fine-tuning run.
-        progress_callback:  Optional callable(epoch, total_epochs, logs) for
-                            real-time progress reporting (used by dashboard).
+        callbacks:          Optional list of Keras callbacks (e.g., for UI progress).
 
     Returns:
         Keras History.history dict.
@@ -419,8 +466,7 @@ def fine_tune(
         FileNotFoundError: If checkpoint_path does not exist.
     """
     import tensorflow as tf
-    from dataset import CloudPatchDataset, incorporate_new_samples
-    from model import CUSTOM_OBJECTS, CombinedDiceCELoss, DiceCoefficient, MeanIoU
+    from dataset import CloudPatchDataset
 
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
@@ -429,45 +475,11 @@ def fine_tune(
 
     # ── Incorporate new data ──────────────────────────────────────────────────
     if new_image_dir is not None and new_mask_dir is not None:
-        n_new = incorporate_new_samples(
-            new_image_dir  = new_image_dir,
-            new_mask_dir   = new_mask_dir,
-            base_image_dir = cfg.image_dir,
-            base_mask_dir  = cfg.mask_dir,
-            prefix         = f"finetune_{int(time.time())}",
-        )
-        logger.info("Incorporated %d new samples into training pool.", n_new)
+        _incorporate_data(cfg, new_image_dir, new_mask_dir)
 
-    # ── Load model ────────────────────────────────────────────────────────────
-    # Try loading as full SavedModel first; fall back to weights-only h5.
-    try:
-        model = tf.keras.models.load_model(
-            str(checkpoint_path.parent / "final_model.keras"),
-            custom_objects=CUSTOM_OBJECTS,
-        )
-        logger.info("Loaded full SavedModel from '%s'.", checkpoint_path.parent)
-    except Exception:
-        # Weights-only checkpoint: rebuild architecture then load weights
-        from model import build_unet
-        model = build_unet(
-            input_shape        = (cfg.patch_size, cfg.patch_size, 4),
-            num_classes        = 3,
-            base_filters       = cfg.base_filters,
-            depth              = cfg.depth,
-            dropout            = cfg.dropout,
-            bottleneck_dropout = cfg.bottleneck_dropout,
-        )
-        model.load_weights(str(checkpoint_path))
-        logger.info("Loaded weights from '%s'.", checkpoint_path)
-
-    # ── Re-compile with reduced LR ────────────────────────────────────────────
+    # ── Load and compile model ────────────────────────────────────────────────
     ft_lr = cfg.learning_rate * fine_tune_lr_scale
-    model.compile(
-        optimizer = tf.keras.optimizers.Adam(learning_rate=ft_lr),
-        loss      = CombinedDiceCELoss(alpha=cfg.dice_alpha),
-        metrics   = [DiceCoefficient(num_classes=3), MeanIoU(num_classes=3)],
-    )
-    logger.info("Re-compiled model with fine-tune LR = %.2e", ft_lr)
+    model = _load_and_compile_model(checkpoint_path, cfg, ft_lr)
 
     # ── Data generators ───────────────────────────────────────────────────────
     train_gen, val_gen = CloudPatchDataset.train_val_split(
@@ -482,11 +494,10 @@ def fine_tune(
 
     # ── Callbacks ─────────────────────────────────────────────────────────────
     run_tag = f"finetune_{int(time.time())}"
-    callbacks = build_callbacks(cfg, run_tag=run_tag)
+    run_callbacks = build_callbacks(cfg, run_tag=run_tag)
 
-    # Optional real-time progress reporting for the Streamlit dashboard
-    if progress_callback is not None:
-        callbacks.append(_DashboardProgressCallback(progress_callback, fine_tune_epochs))
+    if callbacks is not None:
+        run_callbacks.extend(callbacks)
 
     # ── Fine-tune ─────────────────────────────────────────────────────────────
     logger.info(
@@ -499,7 +510,7 @@ def fine_tune(
         train_gen,
         validation_data = val_gen,
         epochs          = fine_tune_epochs,
-        callbacks       = callbacks,
+        callbacks       = run_callbacks,
         workers         = cfg.workers,
         use_multiprocessing = True,
         verbose         = 1,
@@ -518,7 +529,7 @@ def fine_tune(
 #  SECTION 6 — DASHBOARD PROGRESS CALLBACK
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class _DashboardProgressCallback(tf.keras.callbacks.Callback):
+class DashboardProgressCallback(tf.keras.callbacks.Callback):
     """Bridge between Keras training loop and a Streamlit progress reporter.
 
     Calls progress_fn(epoch, total, logs) at the end of each epoch.
