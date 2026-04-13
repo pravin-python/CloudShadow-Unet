@@ -47,12 +47,10 @@ Run:
 
 from __future__ import annotations
 
-import io
 import logging
 import os
 import sys
 import tempfile
-import threading
 from pathlib import Path
 
 import numpy as np
@@ -357,14 +355,11 @@ def _render_sidebar() -> dict:
             ft_uploaded_image_bytes, ft_uploaded_mask_bytes,
             ft_epochs, start_finetune
     """
-    st.sidebar.markdown(
-        "<h2 style='color:#1E90FF;'>🛰️ CloudShadow-UNet</h2>"
-        "<p style='color:#888;font-size:0.85rem;'>Satellite Segmentation Dashboard</p>",
-        unsafe_allow_html=True,
-    )
+    st.sidebar.title("🛰️ CloudShadow-UNet")
+    st.sidebar.caption("Satellite Segmentation Dashboard")
     st.sidebar.markdown("---")
 
-    # ── Model settings ────────────────────────────────────────────────────────
+def _render_sidebar_model_settings() -> tuple:
     st.sidebar.subheader("⚙️ Model Configuration")
 
     model_path = st.sidebar.text_input(
@@ -404,8 +399,9 @@ def _render_sidebar() -> dict:
     )
 
     st.sidebar.markdown("---")
+    return model_path, model, int(patch_size), float(overlap), float(confidence_threshold)
 
-    # ── Image upload ──────────────────────────────────────────────────────────
+def _render_sidebar_image_upload(model) -> tuple:
     st.sidebar.subheader("📂 Upload Satellite Image")
     uploaded_image = st.sidebar.file_uploader(
         "4-band GeoTIFF (R, G, B, NIR)",
@@ -422,8 +418,9 @@ def _render_sidebar() -> dict:
     )
 
     st.sidebar.markdown("---")
+    return uploaded_image, run_inference
 
-    # ── Fine-tuning ───────────────────────────────────────────────────────────
+def _render_sidebar_finetuning(model) -> tuple:
     with st.sidebar.expander("🔬 Fine-Tune on New Data", expanded=False):
         st.caption(
             "Upload a new GeoTIFF + its annotation mask to incorporate "
@@ -440,25 +437,36 @@ def _render_sidebar() -> dict:
         )
 
     st.sidebar.markdown("---")
+    return ft_image, ft_mask, ft_epochs, ft_button
 
-    # ── Legend ────────────────────────────────────────────────────────────────
+def _render_sidebar_legend() -> None:
     st.sidebar.markdown("**Class Legend**")
+    emoji_map = {0: "🔵", 1: "⬜", 2: "🟦"}
     for cls_id, name in CLASS_NAMES.items():
-        hex_col = LEGEND_HEX[cls_id]
-        border  = "border:1px solid #555;" if cls_id == 1 else ""
-        st.sidebar.markdown(
-            f"<div style='display:flex;align-items:center;margin:2px 0'>"
-            f"<span style='width:16px;height:16px;background:{hex_col};"
-            f"{border}display:inline-block;margin-right:8px;border-radius:3px'></span>"
-            f"<span>{cls_id} — {name}</span></div>",
-            unsafe_allow_html=True,
-        )
+        emoji = emoji_map.get(cls_id, "▪️")
+        st.sidebar.markdown(f"{emoji} **{cls_id}** — {name}")
+
+def _render_sidebar() -> dict:
+    """Render all sidebar controls and return a config dict.
+
+    Returns:
+        dict with keys:
+            model_path, patch_size, overlap, confidence_threshold,
+            run_inference, uploaded_image_bytes, scene_name,
+            ft_uploaded_image_bytes, ft_uploaded_mask_bytes,
+            ft_epochs, start_finetune
+    """
+    _render_sidebar_header()
+    model_path, model, patch_size, overlap, confidence_threshold = _render_sidebar_model_settings()
+    uploaded_image, run_inference = _render_sidebar_image_upload(model)
+    ft_image, ft_mask, ft_epochs, ft_button = _render_sidebar_finetuning(model)
+    _render_sidebar_legend()
 
     return {
         "model_path":               model_path,
-        "patch_size":               int(patch_size),
-        "overlap":                  float(overlap),
-        "confidence_threshold":     float(confidence_threshold),
+        "patch_size":               patch_size,
+        "overlap":                  overlap,
+        "confidence_threshold":     confidence_threshold,
         "run_inference":            run_inference,
         "uploaded_image_bytes":     uploaded_image.read() if uploaded_image else None,
         "scene_name":               uploaded_image.name if uploaded_image else None,
@@ -583,7 +591,31 @@ def _render_statistics(class_map: np.ndarray, profile: dict) -> None:
     from geospatial_utils import compute_area_stats
     import pandas as pd
 
-    stats = compute_area_stats(class_map, profile)
+    transform = profile.get("transform")
+    if transform is not None:
+        pixel_area_m2 = abs(transform.a) * abs(transform.e)
+    else:
+        pixel_area_m2 = 100.0  # fallback to Sentinel-2 default
+
+    new_stats = compute_area_stats(class_map, pixel_area_m2)
+
+    # We need to convert new_stats back to old format expected by app.py
+    # because it seems app.py uses old stats format
+    stats = {}
+
+    # Old format: stats['background_px'], stats['background_km2'], stats['total_km2'], stats['cloud_fraction']
+    stats['background_px'] = new_stats['Background']['px_count']
+    stats['cloud_px'] = new_stats['Cloud']['px_count']
+    stats['shadow_px'] = new_stats['Shadow']['px_count']
+
+    stats['background_km2'] = new_stats['Background']['area_km2']
+    stats['cloud_km2'] = new_stats['Cloud']['area_km2']
+    stats['shadow_km2'] = new_stats['Shadow']['area_km2']
+
+    stats['total_px'] = class_map.size
+    stats['total_km2'] = stats['background_km2'] + stats['cloud_km2'] + stats['shadow_km2']
+    stats['cloud_fraction'] = stats['cloud_km2'] / max(stats['total_km2'], 1e-9)
+    stats['shadow_fraction'] = stats['shadow_km2'] / max(stats['total_km2'], 1e-9)
 
     # ── Top KPI row ───────────────────────────────────────────────────────────
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -753,13 +785,17 @@ def _render_finetune_panel(cfg: dict) -> None:
             new_img_patches  = Path(tempfile.mkdtemp())
             new_mask_patches = Path(tempfile.mkdtemp())
 
-            n = preprocess_scene(
-                image_path   = tmp_img_path,
-                mask_path    = tmp_mask_path,
+            from geospatial_utils import PreprocessConfig
+            config = PreprocessConfig(
                 out_img_dir  = new_img_patches,
                 out_mask_dir = new_mask_patches,
                 patch_size   = cfg["patch_size"],
                 overlap      = DEFAULT_OVERLAP,
+            )
+            n = preprocess_scene(
+                image_path   = tmp_img_path,
+                mask_path    = tmp_mask_path,
+                config       = config,
             )
             progress_bar.progress(0.15, text=f"✅ {n} patches extracted from new scene")
             status_text.success(f"New scene preprocessed: {n} patches ready.")
@@ -834,12 +870,8 @@ def main() -> None:
     cfg = _render_sidebar()
 
     # ── Page header ───────────────────────────────────────────────────────────
-    st.markdown(
-        "<h1 style='font-size:2rem;'>🛰️ CloudShadow-UNet</h1>"
-        "<p style='color:#666;'>Satellite Cloud & Shadow Segmentation · "
-        "Deep Learning Pipeline · Real-time GIS Dashboard</p>",
-        unsafe_allow_html=True,
-    )
+    st.title("🛰️ CloudShadow-UNet")
+    st.caption("Satellite Cloud & Shadow Segmentation · Deep Learning Pipeline · Real-time GIS Dashboard")
     st.markdown("---")
 
     # ── No file uploaded state ────────────────────────────────────────────────
@@ -859,18 +891,12 @@ def main() -> None:
                 "> ```"
             )
         with col_r:
-            st.markdown(
-                "<div style='background:#0e1117;border:1px solid #333;"
-                "border-radius:8px;padding:16px'>"
-                "<h4 style='color:#1E90FF'>Model Status</h4>"
-                + (
-                    "<p style='color:#00c853'>✅ Model loaded and ready</p>"
-                    if _load_model(cfg["model_path"]) is not None
-                    else "<p style='color:#ff5252'>⚠️ No model found at the specified path</p>"
-                )
-                + "</div>",
-                unsafe_allow_html=True,
-            )
+            with st.container(border=True):
+                st.subheader("Model Status")
+                if _load_model(cfg["model_path"]) is not None:
+                    st.success("✅ Model loaded and ready")
+                else:
+                    st.error("⚠️ No model found at the specified path")
 
         with st.expander("📚 How to prepare your data"):
             st.markdown(

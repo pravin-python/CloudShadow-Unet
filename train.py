@@ -309,12 +309,12 @@ def train_from_scratch(cfg: TrainingConfig) -> dict:
     """
     import tensorflow as tf
     from dataset import CloudPatchDataset
-    from model import build_and_compile
+    from model import build_and_compile, ModelConfig
 
     _init_gpus()
 
     # ── Build model ───────────────────────────────────────────────────────────
-    model = build_and_compile(
+    config = ModelConfig(
         input_shape        = (cfg.patch_size, cfg.patch_size, 4),
         num_classes        = 3,
         base_filters       = cfg.base_filters,
@@ -325,6 +325,7 @@ def train_from_scratch(cfg: TrainingConfig) -> dict:
         dice_alpha         = cfg.dice_alpha,
         precision          = cfg.precision,
     )
+    model = build_and_compile(config)
     model.summary(line_length=110)
 
     # Optional: load weights to resume from a previous run

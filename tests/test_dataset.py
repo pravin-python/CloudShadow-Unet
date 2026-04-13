@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 import tensorflow as tf
 from pathlib import Path
-from dataset import CloudPatchDataset
+from dataset import CloudPatchDataset, DatasetConfig
 from geospatial_utils import save_patches, generate_tile_coords, extract_patches
 import rasterio
 
@@ -25,7 +25,7 @@ def test_dataset_generator(tmp_path):
         np.save(image_dir / f"patch_{i}.npy", img)
         np.save(mask_dir / f"patch_{i}.npy", mask)
 
-    dataset = CloudPatchDataset(
+    config = DatasetConfig(
         image_dir=image_dir,
         mask_dir=mask_dir,
         batch_size=4,
@@ -34,6 +34,7 @@ def test_dataset_generator(tmp_path):
         shuffle=False,
         seed=42
     )
+    dataset = CloudPatchDataset(config)
 
     # test __len__
     assert len(dataset) == 3 # 10 samples / 4 batch size = ceil(2.5) = 3
@@ -93,7 +94,7 @@ def test_lazy_loading_from_geotiff(tmp_path):
     # save patches logic acts as the lazy mechanism bridge from full arrays to disk chunks
     save_patches(img_patches, mask_patches, image_dir, mask_dir, "test_scene")
 
-    dataset = CloudPatchDataset(
+    config = DatasetConfig(
         image_dir=image_dir,
         mask_dir=mask_dir,
         batch_size=2,
@@ -102,8 +103,34 @@ def test_lazy_loading_from_geotiff(tmp_path):
         shuffle=False,
         seed=42
     )
+    dataset = CloudPatchDataset(config)
 
     assert len(dataset) == 3
     X, y = dataset[0]
     assert X.shape == (2, 256, 256, 4)
     assert y.shape == (2, 256, 256, 3)
+
+def test_one_hot():
+    # Setup simple array
+    mask = np.array([[0, 1], [2, 0]])
+    expected = np.zeros((2, 2, 3), dtype=np.float32)
+    expected[0, 0, 0] = 1.0
+    expected[0, 1, 1] = 1.0
+    expected[1, 0, 2] = 1.0
+    expected[1, 1, 0] = 1.0
+
+    # Call _one_hot
+    result = CloudPatchDataset._one_hot(mask)
+
+    # Verify
+    assert result.shape == (2, 2, 3)
+    np.testing.assert_array_equal(result, expected)
+
+def test_one_hot_out_of_bounds():
+    # _one_hot currently clips values to 0..(NUM_CLASSES-1)
+    mask = np.array([[-1, 1], [3, 0]])
+    result = CloudPatchDataset._one_hot(mask)
+
+    # clipped value checks
+    assert result[0, 0, 0] == 1.0 # -1 is clipped to 0
+    assert result[1, 0, 2] == 1.0 # 3 is clipped to 2

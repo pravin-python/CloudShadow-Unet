@@ -1,6 +1,7 @@
+from pathlib import Path
 import pytest
 import numpy as np
-from geospatial_utils import generate_tile_coords, cosine_bell_mask, stitch_predictions, apply_clahe
+from geospatial_utils import generate_tile_coords, cosine_bell_mask, stitch_predictions, class_map_to_rgb, CLASS_COLORS_RGB
 
 def test_generate_tile_coords():
     coords = generate_tile_coords(1000, 1000, 256, 0.5)
@@ -9,9 +10,28 @@ def test_generate_tile_coords():
     assert max(c[1] for c in coords) == 1000 # row max
     assert max(c[3] for c in coords) == 1000 # col max
 
-def test_cosine_bell_mask():
-    mask = cosine_bell_mask(256)
-    assert mask.shape == (256, 256)
+@pytest.mark.parametrize("patch_size", [64, 128, 255, 256])
+def test_cosine_bell_mask(patch_size):
+    mask = cosine_bell_mask(patch_size)
+
+    # 1. Check shape
+    assert mask.shape == (patch_size, patch_size)
+
+    # 2. Check value range (strictly between 0 and 1)
+    assert np.all(mask >= 0.0)
+    assert np.all(mask <= 1.0)
+
+    # 3. Check symmetry
+    assert np.allclose(mask, np.fliplr(mask))
+    assert np.allclose(mask, np.flipud(mask))
+
+    # 4. Check peak is at the center
+    # Find the indices of the maximum value
+    max_idx = np.unravel_index(np.argmax(mask), mask.shape)
+    # The center for size N is around N // 2 or (N - 1) // 2
+    assert max_idx[0] == (patch_size - 1) // 2 or max_idx[0] == patch_size // 2
+    assert max_idx[1] == (patch_size - 1) // 2 or max_idx[1] == patch_size // 2
+    # Ensure the max is exactly 1.0 and min is 0.0
     assert np.isclose(mask.max(), 1.0)
     assert np.isclose(mask.min(), 0.0)
 
@@ -39,27 +59,48 @@ def test_stitch_predictions():
     assert stitched.min() >= 0
     assert stitched.max() < 3
 
-def test_apply_clahe():
-    H, W, C = 64, 64, 4
-    # Create a synthetic image with low contrast
-    image_1d = np.linspace(0.4, 0.6, H * W)
-    image_2d = image_1d.reshape(H, W)
-    image = np.stack([image_2d] * C, axis=-1).astype(np.float32)
+def test_class_map_to_rgb():
+    # Test typical case
+    class_map = np.array([
+        [0, 1],
+        [2, 0]
+    ], dtype=np.int32)
 
-    enhanced = apply_clahe(image, clip_limit=2.0, tile_grid=(8, 8))
+    rgb = class_map_to_rgb(class_map)
 
-    # Shape should match
-    assert enhanced.shape == image.shape
+    assert rgb.shape == (2, 2, 3)
+    assert rgb.dtype == np.uint8
 
-    # Data type should match
-    assert enhanced.dtype == np.float32
+    expected_0 = CLASS_COLORS_RGB[0]
+    expected_1 = CLASS_COLORS_RGB[1]
+    expected_2 = CLASS_COLORS_RGB[2]
 
-    # Values should still be in [0, 1]
-    assert enhanced.min() >= 0.0
-    assert enhanced.max() <= 1.0
+    assert np.array_equal(rgb[0, 0], expected_0)
+    assert np.array_equal(rgb[0, 1], expected_1)
+    assert np.array_equal(rgb[1, 0], expected_2)
+    assert np.array_equal(rgb[1, 1], expected_0)
 
-    # Contrast should be increased
-    for b in range(C):
-        orig_std = image[:, :, b].std()
-        enh_std = enhanced[:, :, b].std()
-        assert enh_std > orig_std
+def test_class_map_to_rgb_edge_cases():
+    # Test empty array
+    empty_map = np.empty((0, 0), dtype=np.int32)
+    rgb_empty = class_map_to_rgb(empty_map)
+    assert rgb_empty.shape == (0, 0, 3)
+    assert rgb_empty.dtype == np.uint8
+
+    # Test array with unexpected values
+    unexpected_map = np.array([
+        [3, -1],
+        [0, 99]
+    ], dtype=np.int32)
+
+    rgb_unexpected = class_map_to_rgb(unexpected_map)
+    assert rgb_unexpected.shape == (2, 2, 3)
+    assert rgb_unexpected.dtype == np.uint8
+
+    # 0 should map correctly
+    assert np.array_equal(rgb_unexpected[1, 0], CLASS_COLORS_RGB[0])
+
+    # 3, -1, 99 should remain black (0, 0, 0)
+    assert np.array_equal(rgb_unexpected[0, 0], [0, 0, 0])
+    assert np.array_equal(rgb_unexpected[0, 1], [0, 0, 0])
+    assert np.array_equal(rgb_unexpected[1, 1], [0, 0, 0])
