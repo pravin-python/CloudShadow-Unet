@@ -45,7 +45,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import shutil
 import subprocess
 import sys
@@ -89,11 +88,9 @@ def download_from_kaggle(dataset_key: str, dest_dir: Path) -> Path:
     Raises:
         SystemExit: If kaggle CLI is not installed or credentials are missing.
     """
-    try:
-        import kaggle  # noqa: F401 — just checking it's importable
-    except ImportError:
+    if shutil.which("kaggle") is None:
         logger.error(
-            "kaggle package not installed.\n"
+            "kaggle CLI not found.\n"
             "Run: pip install kaggle\n"
             "Then set up credentials: https://www.kaggle.com/docs/api"
         )
@@ -135,7 +132,6 @@ def merge_bands_to_geotiff(
         output_path: Destination 4-band GeoTIFF path.
     """
     import rasterio
-    from rasterio.transform import from_bounds
 
     band_order = ["red", "green", "blue", "nir"]
     bands: list[np.ndarray] = []
