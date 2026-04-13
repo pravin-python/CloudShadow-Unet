@@ -229,7 +229,88 @@ def convert_mask_png_to_geotiff(
     logger.debug("Mask GeoTIFF → %s  unique=%s", output_path, np.unique(label_map).tolist())
 
 
+
 # ─── step 4: full conversion pipeline ────────────────────────────────────────
+
+def _find_dir(root: Path, keywords: list[str]) -> Path | None:
+    for kw in keywords:
+        matches = list(root.rglob(f"*{kw}*"))
+        dirs = [m for m in matches if m.is_dir()]
+        if dirs:
+            return dirs[0]
+    return None
+
+def _locate_band_dirs(source_dir: Path) -> dict[str, Path] | None:
+    red_dir   = _find_dir(source_dir, ["red",   "Red"])
+    green_dir = _find_dir(source_dir, ["green", "Green"])
+    blue_dir  = _find_dir(source_dir, ["blue",  "Blue"])
+    nir_dir   = _find_dir(source_dir, ["nir",   "NIR"])
+    gt_dir    = _find_dir(source_dir, ["gt", "GT", "mask", "label"])
+
+    if not all([red_dir, green_dir, blue_dir, nir_dir, gt_dir]):
+        logger.error(
+            "Could not find all required band directories.\n"
+            "Expected: red, green, blue, nir, gt  under '%s'.\n"
+            "Found: red=%s green=%s blue=%s nir=%s gt=%s",
+            source_dir, red_dir, green_dir, blue_dir, nir_dir, gt_dir,
+        )
+        return None
+    return {
+        "red": red_dir,
+        "green": green_dir,
+        "blue": blue_dir,
+        "nir": nir_dir,
+        "gt": gt_dir
+    }
+
+def _find_file(directory: Path, stem: str) -> Path | None:
+    candidates = (
+        list(directory.glob(f"*{stem}*.TIF")) +
+        list(directory.glob(f"*{stem}*.tif")) +
+        list(directory.glob(f"*{stem}*.png")) +
+        list(directory.glob(f"*{stem}*.PNG"))
+    )
+    return candidates[0] if candidates else None
+
+def _process_scene(red_path: Path, band_dirs: dict[str, Path], dataset_type: str) -> bool:
+    stem = red_path.stem.replace("_red", "").replace("_RED", "").replace("red_", "")
+
+    green_path = _find_file(band_dirs["green"], stem)
+    blue_path  = _find_file(band_dirs["blue"],  stem)
+    nir_path   = _find_file(band_dirs["nir"],   stem)
+    gt_path    = _find_file(band_dirs["gt"],    stem)
+
+    if not all([green_path, blue_path, nir_path, gt_path]):
+        logger.warning(
+            "Skipping '%s' — missing files: green=%s blue=%s nir=%s gt=%s",
+            stem, green_path, blue_path, nir_path, gt_path,
+        )
+        return False
+
+    out_image = RAW_DIR / f"scene_{stem}.tif"
+    out_mask  = RAW_DIR / f"scene_{stem}_mask.tif"
+
+    try:
+        merge_bands_to_geotiff(
+            band_paths={
+                "red":   red_path,
+                "green": green_path,
+                "blue":  blue_path,
+                "nir":   nir_path,
+            },
+            output_path=out_image,
+        )
+        convert_mask_png_to_geotiff(
+            mask_png_path      = gt_path,
+            reference_tif_path = out_image,
+            output_path        = out_mask,
+            dataset_type       = dataset_type,
+        )
+        return True
+
+    except Exception as exc:
+        logger.error("Failed to convert scene '%s': %s", stem, exc)
+        return False
 
 def convert_38cloud(source_dir: Path, dataset_type: str = "38cloud") -> int:
     """Convert raw 38-Cloud / 95-Cloud directory structure to project format.
@@ -255,30 +336,11 @@ def convert_38cloud(source_dir: Path, dataset_type: str = "38cloud") -> int:
     """
     logger.info("Scanning '%s' for %s data …", source_dir, dataset_type)
 
-    # Locate band directories (handle various sub-folder naming conventions)
-    def _find_dir(root: Path, keywords: list[str]) -> Path | None:
-        for kw in keywords:
-            matches = list(root.rglob(f"*{kw}*"))
-            dirs = [m for m in matches if m.is_dir()]
-            if dirs:
-                return dirs[0]
-        return None
-
-    red_dir   = _find_dir(source_dir, ["red",   "Red"])
-    green_dir = _find_dir(source_dir, ["green", "Green"])
-    blue_dir  = _find_dir(source_dir, ["blue",  "Blue"])
-    nir_dir   = _find_dir(source_dir, ["nir",   "NIR"])
-    gt_dir    = _find_dir(source_dir, ["gt", "GT", "mask", "label"])
-
-    if not all([red_dir, green_dir, blue_dir, nir_dir, gt_dir]):
-        logger.error(
-            "Could not find all required band directories.\n"
-            "Expected: red, green, blue, nir, gt  under '%s'.\n"
-            "Found: red=%s green=%s blue=%s nir=%s gt=%s",
-            source_dir, red_dir, green_dir, blue_dir, nir_dir, gt_dir,
-        )
+    band_dirs = _locate_band_dirs(source_dir)
+    if not band_dirs:
         return 0
 
+    red_dir = band_dirs["red"]
     # Collect all red-band files and match other bands by stem
     red_files = sorted(list(red_dir.glob("*.TIF")) + list(red_dir.glob("*.tif")))
     if not red_files:
@@ -289,54 +351,10 @@ def convert_38cloud(source_dir: Path, dataset_type: str = "38cloud") -> int:
     count = 0
 
     for red_path in red_files:
-        stem = red_path.stem.replace("_red", "").replace("_RED", "").replace("red_", "")
-
-        # Find matching files for other bands and mask
-        def _find_file(directory: Path, pattern: str) -> Path | None:
-            candidates = (
-                list(directory.glob(f"*{stem}*.TIF")) +
-                list(directory.glob(f"*{stem}*.tif")) +
-                list(directory.glob(f"*{stem}*.png")) +
-                list(directory.glob(f"*{stem}*.PNG"))
-            )
-            return candidates[0] if candidates else None
-
-        green_path = _find_file(green_dir, stem)
-        blue_path  = _find_file(blue_dir,  stem)
-        nir_path   = _find_file(nir_dir,   stem)
-        gt_path    = _find_file(gt_dir,    stem)
-
-        if not all([green_path, blue_path, nir_path, gt_path]):
-            logger.warning(
-                "Skipping '%s' — missing files: green=%s blue=%s nir=%s gt=%s",
-                stem, green_path, blue_path, nir_path, gt_path,
-            )
-            continue
-
-        out_image = RAW_DIR / f"scene_{stem}.tif"
-        out_mask  = RAW_DIR / f"scene_{stem}_mask.tif"
-
-        try:
-            merge_bands_to_geotiff(
-                band_paths={
-                    "red":   red_path,
-                    "green": green_path,
-                    "blue":  blue_path,
-                    "nir":   nir_path,
-                },
-                output_path=out_image,
-            )
-            convert_mask_png_to_geotiff(
-                mask_png_path      = gt_path,
-                reference_tif_path = out_image,
-                output_path        = out_mask,
-                dataset_type       = dataset_type,
-            )
+        if _process_scene(red_path, band_dirs, dataset_type):
             count += 1
+            out_image = RAW_DIR / f"scene_{red_path.stem.replace('_red', '').replace('_RED', '').replace('red_', '')}.tif"
             logger.info("[%d/%d] ✅ %s", count, len(red_files), out_image.name)
-
-        except Exception as exc:
-            logger.error("Failed to convert scene '%s': %s", stem, exc)
 
     logger.info("Conversion complete: %d / %d scenes → data/raw/", count, len(red_files))
     return count
