@@ -748,6 +748,90 @@ def _render_download(
 #  SECTION 8 — FINE-TUNING TAB
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
+def _preprocess_finetune_data(
+    cfg: dict, tmp_img_path: Path, tmp_mask_path: Path, progress_bar, status_text
+) -> tuple[Path | None, Path | None]:
+    import tempfile
+    try:
+        from geospatial_utils import preprocess_scene
+
+        new_img_patches  = Path(tempfile.mkdtemp())
+        new_mask_patches = Path(tempfile.mkdtemp())
+
+        n = preprocess_scene(
+            image_path   = tmp_img_path,
+            mask_path    = tmp_mask_path,
+            out_img_dir  = new_img_patches,
+            out_mask_dir = new_mask_patches,
+            patch_size   = cfg["patch_size"],
+            overlap      = DEFAULT_OVERLAP,
+        )
+        progress_bar.progress(0.15, text=f"✅ {n} patches extracted from new scene")
+        status_text.success(f"New scene preprocessed: {n} patches ready.")
+        return new_img_patches, new_mask_patches
+    except Exception as exc:
+        st.error(f"Preprocessing failed: {exc}")
+        return None, None
+
+def _run_finetuning(
+    cfg: dict, new_img_patches: Path, new_mask_patches: Path,
+    progress_bar, status_text, metrics_holder
+) -> None:
+    status_text.info("🔬 Starting fine-tuning …")
+
+    from train import TrainingConfig, fine_tune
+
+    train_cfg = TrainingConfig(
+        image_dir  = Path("data/patches"),
+        mask_dir   = Path("data/masks"),
+        model_dir  = Path("models"),
+        log_dir    = Path("logs"),
+        patch_size = cfg["patch_size"],
+        batch_size = 4,              # conservative for dashboard GPU context
+        epochs     = cfg["ft_epochs"],
+    )
+
+    epoch_metrics: list[dict] = []
+
+    def _progress(epoch: int, total: int, logs: dict) -> None:
+        frac = epoch / max(total, 1)
+        dice = logs.get("val_dice_coeff", logs.get("dice_coeff", 0))
+        iou  = logs.get("val_mean_iou",   logs.get("mean_iou",   0))
+        val_loss = logs.get("val_loss",   logs.get("loss",        0))
+        progress_bar.progress(
+            0.15 + frac * 0.85,
+            text=f"Epoch {epoch}/{total} — val_loss={val_loss:.4f}  "
+                 f"dice={dice:.4f}  IoU={iou:.4f}",
+        )
+        epoch_metrics.append({"epoch": epoch, "val_loss": val_loss,
+                               "dice": dice, "iou": iou})
+        if epoch_metrics:
+            import pandas as pd
+            metrics_holder.line_chart(
+                pd.DataFrame(epoch_metrics).set_index("epoch")[["val_loss", "dice", "iou"]]
+            )
+
+    try:
+        fine_tune(
+            checkpoint_path = Path(cfg["model_path"]),
+            cfg             = train_cfg,
+            new_image_dir   = new_img_patches,
+            new_mask_dir    = new_mask_patches,
+            fine_tune_epochs= cfg["ft_epochs"],
+            progress_callback = _progress,
+        )
+        progress_bar.progress(1.0, text="✅ Fine-tuning complete!")
+        st.success(
+            "Fine-tuning finished. Reload the page or re-run inference to use "
+            "the updated model weights."
+        )
+        # Invalidate cached model so next call reloads updated weights
+        _load_model.clear()
+    except Exception as exc:
+        st.error(f"Fine-tuning failed: {exc}")
+        logger.exception("Fine-tuning error")
+
 def _render_finetune_panel(cfg: dict) -> None:
     """Render fine-tuning progress and trigger training."""
     if not cfg["start_finetune"]:
@@ -818,25 +902,8 @@ def _render_finetune_panel(cfg: dict) -> None:
             epochs     = cfg["ft_epochs"],
         )
 
-        epoch_metrics: list[dict] = []
-
-        def _progress(epoch: int, total: int, logs: dict) -> None:
-            frac = epoch / max(total, 1)
-            dice = logs.get("val_dice_coeff", logs.get("dice_coeff", 0))
-            iou  = logs.get("val_mean_iou",   logs.get("mean_iou",   0))
-            val_loss = logs.get("val_loss",   logs.get("loss",        0))
-            progress_bar.progress(
-                0.15 + frac * 0.85,
-                text=f"Epoch {epoch}/{total} — val_loss={val_loss:.4f}  "
-                     f"dice={dice:.4f}  IoU={iou:.4f}",
-            )
-            epoch_metrics.append({"epoch": epoch, "val_loss": val_loss,
-                                   "dice": dice, "iou": iou})
-            if epoch_metrics:
-                import pandas as pd
-                metrics_holder.line_chart(
-                    pd.DataFrame(epoch_metrics).set_index("epoch")[["val_loss", "dice", "iou"]]
-                )
+        if new_img_patches is None or new_mask_patches is None:
+            return
 
         try:
             fine_tune(
