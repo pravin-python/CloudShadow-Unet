@@ -26,6 +26,7 @@ import cv2
 import numpy as np
 import rasterio
 from rasterio.enums import Resampling
+from geospatial_utils import PreprocessConfig
 
 logging.basicConfig(
     level=logging.INFO,
@@ -259,11 +260,7 @@ def save_patches(
 def preprocess_scene(
     image_path: Path,
     mask_path: Path | None,
-    out_img_dir: Path,
-    out_mask_dir: Path,
-    patch_size: int = 256,
-    overlap: float = 0.25,
-    apply_clahe: bool = True,
+    config: PreprocessConfig,
 ) -> None:
     """Full preprocessing pipeline for a single scene.
 
@@ -285,21 +282,21 @@ def preprocess_scene(
     """
     image, _ = read_multiband_geotiff(image_path)
 
-    if apply_clahe:
+    if config.enhance:
         logger.info("Applying CLAHE contrast enhancement …")
         image = apply_clahe_per_band(image)
 
     mask = read_mask_geotiff(mask_path) if mask_path is not None else None
 
     img_patches, mask_patches = tile_image_and_mask(
-        image, mask, patch_size=patch_size, overlap=overlap
+        image, mask, patch_size=config.patch_size, overlap=config.overlap
     )
 
     save_patches(
         img_patches,
         mask_patches,
-        out_img_dir,
-        out_mask_dir,
+        config.out_img_dir,
+        config.out_mask_dir,
         scene_stem=image_path.stem,
     )
 
@@ -322,12 +319,15 @@ def _parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = _parse_args()
-    preprocess_scene(
-        image_path=args.image,
-        mask_path=args.mask,
+    config = PreprocessConfig(
         out_img_dir=args.out_img,
         out_mask_dir=args.out_mask,
         patch_size=args.patch_size,
         overlap=args.overlap,
-        apply_clahe=not args.no_clahe,
+        enhance=not args.no_clahe,
+    )
+    preprocess_scene(
+        image_path=args.image,
+        mask_path=args.mask,
+        config=config,
     )
