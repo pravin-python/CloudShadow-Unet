@@ -359,7 +359,7 @@ def _render_sidebar() -> dict:
     st.sidebar.caption("Satellite Segmentation Dashboard")
     st.sidebar.markdown("---")
 
-    # ── Model settings ────────────────────────────────────────────────────────
+def _render_sidebar_model_settings() -> tuple:
     st.sidebar.subheader("⚙️ Model Configuration")
 
     model_path = st.sidebar.text_input(
@@ -399,8 +399,9 @@ def _render_sidebar() -> dict:
     )
 
     st.sidebar.markdown("---")
+    return model_path, model, int(patch_size), float(overlap), float(confidence_threshold)
 
-    # ── Image upload ──────────────────────────────────────────────────────────
+def _render_sidebar_image_upload(model) -> tuple:
     st.sidebar.subheader("📂 Upload Satellite Image")
     uploaded_image = st.sidebar.file_uploader(
         "4-band GeoTIFF (R, G, B, NIR)",
@@ -417,8 +418,9 @@ def _render_sidebar() -> dict:
     )
 
     st.sidebar.markdown("---")
+    return uploaded_image, run_inference
 
-    # ── Fine-tuning ───────────────────────────────────────────────────────────
+def _render_sidebar_finetuning(model) -> tuple:
     with st.sidebar.expander("🔬 Fine-Tune on New Data", expanded=False):
         st.caption(
             "Upload a new GeoTIFF + its annotation mask to incorporate "
@@ -435,19 +437,36 @@ def _render_sidebar() -> dict:
         )
 
     st.sidebar.markdown("---")
+    return ft_image, ft_mask, ft_epochs, ft_button
 
-    # ── Legend ────────────────────────────────────────────────────────────────
+def _render_sidebar_legend() -> None:
     st.sidebar.markdown("**Class Legend**")
     emoji_map = {0: "🔵", 1: "⬜", 2: "🟦"}
     for cls_id, name in CLASS_NAMES.items():
         emoji = emoji_map.get(cls_id, "▪️")
         st.sidebar.markdown(f"{emoji} **{cls_id}** — {name}")
 
+def _render_sidebar() -> dict:
+    """Render all sidebar controls and return a config dict.
+
+    Returns:
+        dict with keys:
+            model_path, patch_size, overlap, confidence_threshold,
+            run_inference, uploaded_image_bytes, scene_name,
+            ft_uploaded_image_bytes, ft_uploaded_mask_bytes,
+            ft_epochs, start_finetune
+    """
+    _render_sidebar_header()
+    model_path, model, patch_size, overlap, confidence_threshold = _render_sidebar_model_settings()
+    uploaded_image, run_inference = _render_sidebar_image_upload(model)
+    ft_image, ft_mask, ft_epochs, ft_button = _render_sidebar_finetuning(model)
+    _render_sidebar_legend()
+
     return {
         "model_path":               model_path,
-        "patch_size":               int(patch_size),
-        "overlap":                  float(overlap),
-        "confidence_threshold":     float(confidence_threshold),
+        "patch_size":               patch_size,
+        "overlap":                  overlap,
+        "confidence_threshold":     confidence_threshold,
         "run_inference":            run_inference,
         "uploaded_image_bytes":     uploaded_image.read() if uploaded_image else None,
         "scene_name":               uploaded_image.name if uploaded_image else None,
