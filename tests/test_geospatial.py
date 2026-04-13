@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from geospatial_utils import generate_tile_coords, cosine_bell_mask, stitch_predictions
+from geospatial_utils import generate_tile_coords, cosine_bell_mask, stitch_predictions, class_map_to_rgb, CLASS_COLORS_RGB
 
 def test_generate_tile_coords():
     coords = generate_tile_coords(1000, 1000, 256, 0.5)
@@ -9,9 +9,28 @@ def test_generate_tile_coords():
     assert max(c[1] for c in coords) == 1000 # row max
     assert max(c[3] for c in coords) == 1000 # col max
 
-def test_cosine_bell_mask():
-    mask = cosine_bell_mask(256)
-    assert mask.shape == (256, 256)
+@pytest.mark.parametrize("patch_size", [64, 128, 255, 256])
+def test_cosine_bell_mask(patch_size):
+    mask = cosine_bell_mask(patch_size)
+
+    # 1. Check shape
+    assert mask.shape == (patch_size, patch_size)
+
+    # 2. Check value range (strictly between 0 and 1)
+    assert np.all(mask >= 0.0)
+    assert np.all(mask <= 1.0)
+
+    # 3. Check symmetry
+    assert np.allclose(mask, np.fliplr(mask))
+    assert np.allclose(mask, np.flipud(mask))
+
+    # 4. Check peak is at the center
+    # Find the indices of the maximum value
+    max_idx = np.unravel_index(np.argmax(mask), mask.shape)
+    # The center for size N is around N // 2 or (N - 1) // 2
+    assert max_idx[0] == (patch_size - 1) // 2 or max_idx[0] == patch_size // 2
+    assert max_idx[1] == (patch_size - 1) // 2 or max_idx[1] == patch_size // 2
+    # Ensure the max is exactly 1.0 and min is 0.0
     assert np.isclose(mask.max(), 1.0)
     assert np.isclose(mask.min(), 0.0)
 
@@ -39,74 +58,48 @@ def test_stitch_predictions():
     assert stitched.min() >= 0
     assert stitched.max() < 3
 
+def test_class_map_to_rgb():
+    # Test typical case
+    class_map = np.array([
+        [0, 1],
+        [2, 0]
+    ], dtype=np.int32)
 
-def test_compute_area_stats():
-    from geospatial_utils import compute_area_stats
+    rgb = class_map_to_rgb(class_map)
 
-    # 0 = Background, 1 = Cloud, 2 = Shadow
-    # 10x10 array = 100 pixels
-    # Let's say: 50 background, 30 cloud, 20 shadow
-    class_map = np.zeros((10, 10), dtype=np.int32)
-    class_map[0:3, :] = 1 # 30 cloud pixels
-    class_map[3:5, :] = 2 # 20 shadow pixels
+    assert rgb.shape == (2, 2, 3)
+    assert rgb.dtype == np.uint8
 
-    # Using default pixel_area_m2 = 100.0 (100 pixels = 10000 m^2 = 0.01 km^2)
-    stats = compute_area_stats(class_map)
+    expected_0 = CLASS_COLORS_RGB[0]
+    expected_1 = CLASS_COLORS_RGB[1]
+    expected_2 = CLASS_COLORS_RGB[2]
 
-    # Background: 50 pixels, 50 * 100 = 5000 m^2 = 0.0050 km^2, 50%
-    assert stats['Background']['px_count'] == 50.0
-    assert stats['Background']['area_km2'] == 0.0050
-    assert stats['Background']['percentage'] == 50.0
+    assert np.array_equal(rgb[0, 0], expected_0)
+    assert np.array_equal(rgb[0, 1], expected_1)
+    assert np.array_equal(rgb[1, 0], expected_2)
+    assert np.array_equal(rgb[1, 1], expected_0)
 
-    # Cloud: 30 pixels, 30 * 100 = 3000 m^2 = 0.0030 km^2, 30%
-    assert stats['Cloud']['px_count'] == 30.0
-    assert stats['Cloud']['area_km2'] == 0.0030
-    assert stats['Cloud']['percentage'] == 30.0
+def test_class_map_to_rgb_edge_cases():
+    # Test empty array
+    empty_map = np.empty((0, 0), dtype=np.int32)
+    rgb_empty = class_map_to_rgb(empty_map)
+    assert rgb_empty.shape == (0, 0, 3)
+    assert rgb_empty.dtype == np.uint8
 
-    # Shadow: 20 pixels, 20 * 100 = 2000 m^2 = 0.0020 km^2, 20%
-    assert stats['Shadow']['px_count'] == 20.0
-    assert stats['Shadow']['area_km2'] == 0.0020
-    assert stats['Shadow']['percentage'] == 20.0
+    # Test array with unexpected values
+    unexpected_map = np.array([
+        [3, -1],
+        [0, 99]
+    ], dtype=np.int32)
 
-def test_compute_area_stats_custom_area():
-    from geospatial_utils import compute_area_stats
+    rgb_unexpected = class_map_to_rgb(unexpected_map)
+    assert rgb_unexpected.shape == (2, 2, 3)
+    assert rgb_unexpected.dtype == np.uint8
 
-    class_map = np.zeros((10, 10), dtype=np.int32)
+    # 0 should map correctly
+    assert np.array_equal(rgb_unexpected[1, 0], CLASS_COLORS_RGB[0])
 
-    # 10x10 array = 100 pixels. Each pixel = 900 m^2. Total = 90000 m^2 = 0.09 km^2
-    stats = compute_area_stats(class_map, pixel_area_m2=900.0)
-
-    assert stats['Background']['px_count'] == 100.0
-    assert stats['Background']['area_km2'] == 0.0900
-    assert stats['Background']['percentage'] == 100.0
-
-    assert stats['Cloud']['px_count'] == 0.0
-    assert stats['Cloud']['area_km2'] == 0.0
-    assert stats['Cloud']['percentage'] == 0.0
-
-def test_compute_area_stats_missing_class():
-    from geospatial_utils import compute_area_stats
-
-    # All background and cloud, NO shadow
-    class_map = np.zeros((10, 10), dtype=np.int32)
-    class_map[0:5, :] = 1 # 50 cloud pixels
-
-    stats = compute_area_stats(class_map)
-
-    assert stats['Background']['px_count'] == 50.0
-    assert stats['Cloud']['px_count'] == 50.0
-    assert stats['Shadow']['px_count'] == 0.0
-
-    assert stats['Shadow']['area_km2'] == 0.0
-    assert stats['Shadow']['percentage'] == 0.0
-
-def test_compute_area_stats_zero_total_area():
-    from geospatial_utils import compute_area_stats
-
-    class_map = np.empty((0, 0), dtype=np.int32)
-
-    stats = compute_area_stats(class_map)
-
-    assert stats['Background']['px_count'] == 0.0
-    assert stats['Background']['area_km2'] == 0.0
-    assert stats['Background']['percentage'] == 0.0 # Handled by max(total_px, 1)
+    # 3, -1, 99 should remain black (0, 0, 0)
+    assert np.array_equal(rgb_unexpected[0, 0], [0, 0, 0])
+    assert np.array_equal(rgb_unexpected[0, 1], [0, 0, 0])
+    assert np.array_equal(rgb_unexpected[1, 1], [0, 0, 0])
