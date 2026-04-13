@@ -806,7 +806,7 @@ def _render_finetune_panel(cfg: dict) -> None:
         # ── Step 2: fine-tune ─────────────────────────────────────────────────
         status_text.info("🔬 Starting fine-tuning …")
 
-        from train import TrainingConfig, fine_tune
+        from train import TrainingConfig, fine_tune, DashboardProgressCallback
 
         train_cfg = TrainingConfig(
             image_dir  = Path("data/patches"),
@@ -845,7 +845,7 @@ def _render_finetune_panel(cfg: dict) -> None:
                 new_image_dir   = new_img_patches,
                 new_mask_dir    = new_mask_patches,
                 fine_tune_epochs= cfg["ft_epochs"],
-                progress_callback = _progress,
+                callbacks       = [DashboardProgressCallback(_progress, cfg["ft_epochs"])],
             )
             progress_bar.progress(1.0, text="✅ Fine-tuning complete!")
             st.success(
