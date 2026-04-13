@@ -39,6 +39,7 @@ from __future__ import annotations
 import logging
 import shutil
 from pathlib import Path
+from dataclasses import dataclass
 
 import numpy as np
 import tensorflow as tf
@@ -147,6 +148,19 @@ def _augment_opencv(
 #  SECTION 2 — KERAS SEQUENCE DATA GENERATOR
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
+@dataclass
+class DatasetConfig:
+    image_dir: Path | str
+    mask_dir: Path | str
+    batch_size: int = 8
+    patch_size: int = 256
+    augment: bool = True
+    shuffle: bool = True
+    seed: int = 42
+    use_albumentations: bool = True
+
+
 class CloudPatchDataset(tf.keras.utils.Sequence):
     """Lazily streams (image, mask) patch pairs from disk for Keras training.
 
@@ -161,41 +175,25 @@ class CloudPatchDataset(tf.keras.utils.Sequence):
       is in RAM at any given time — regardless of dataset size.
 
     Args:
-        image_dir:   Directory containing float32 RGBNIR image patches (.npy).
-        mask_dir:    Directory containing uint8 label patches (.npy).
-        batch_size:  Samples per batch.
-        patch_size:  Expected spatial dimension (validation only — not crop).
-        augment:     Apply augmentations (True for train, False for val).
-        shuffle:     Shuffle sample order each epoch (True for train).
-        seed:        RNG seed for reproducibility.
-        use_albumentations: Use albumentations pipeline if available.
+        config: DatasetConfig instance containing data loading parameters.
     """
 
-    def __init__(
-        self,
-        image_dir: Path | str,
-        mask_dir:  Path | str,
-        batch_size: int = 8,
-        patch_size: int = 256,
-        augment: bool = True,
-        shuffle: bool = True,
-        seed: int = 42,
-        use_albumentations: bool = True,
-    ) -> None:
-        self.image_dir   = Path(image_dir)
-        self.mask_dir    = Path(mask_dir)
-        self.batch_size  = batch_size
-        self.patch_size  = patch_size
-        self.augment     = augment
-        self.shuffle     = shuffle
-        self._rng        = np.random.default_rng(seed)
+    def __init__(self, config: DatasetConfig) -> None:
+        self.config      = config
+        self.image_dir   = Path(config.image_dir)
+        self.mask_dir    = Path(config.mask_dir)
+        self.batch_size  = config.batch_size
+        self.patch_size  = config.patch_size
+        self.augment     = config.augment
+        self.shuffle     = config.shuffle
+        self._rng        = np.random.default_rng(config.seed)
 
         # Prefer albumentations if requested and available
-        self._use_albumentations = augment and use_albumentations and _ALBUMENTATIONS_AVAILABLE
+        self._use_albumentations = self.augment and config.use_albumentations and _ALBUMENTATIONS_AVAILABLE
         if self._use_albumentations:
             self._aug_pipeline = _build_albumentations_pipeline()
             logger.info("Using albumentations augmentation pipeline.")
-        elif augment:
+        elif self.augment:
             logger.info("Using OpenCV fallback augmentation pipeline.")
 
         # ── validate and align file lists ────────────────────────────────────
@@ -221,8 +219,8 @@ class CloudPatchDataset(tf.keras.utils.Sequence):
         logger.info(
             "CloudPatchDataset ready — %d samples | batch=%d | augment=%s",
             len(self.image_paths),
-            batch_size,
-            augment,
+            self.batch_size,
+            self.augment,
         )
 
     # ── Sequence protocol ─────────────────────────────────────────────────────
@@ -294,10 +292,11 @@ class CloudPatchDataset(tf.keras.utils.Sequence):
     def _one_hot(mask: np.ndarray) -> np.ndarray:
         """Convert (H, W) uint8 label map → (H, W, NUM_CLASSES) float32.
 
-        Labels outside [0, NUM_CLASSES-1] are clipped to 0 (background)
+        Labels outside [0, NUM_CLASSES-1] are mapped to 0 (background)
         to handle stray annotation artefacts gracefully without crashing.
         """
-        mask = np.clip(mask, 0, NUM_CLASSES - 1).astype(np.int32)
+        # Map values >= NUM_CLASSES to 0
+        mask = np.where(mask >= NUM_CLASSES, 0, mask).astype(np.int32)
         return tf.keras.utils.to_categorical(mask, num_classes=NUM_CLASSES).astype(np.float32)
 
     # ── class utilities ───────────────────────────────────────────────────────
@@ -349,15 +348,26 @@ class CloudPatchDataset(tf.keras.utils.Sequence):
         trn_idx = indices[n_val:]
 
         def _make_gen(idx_list: np.ndarray, is_train: bool) -> "CloudPatchDataset":
+            config = DatasetConfig(
+                image_dir=image_dir,
+                mask_dir=mask_dir,
+                batch_size=batch_size,
+                patch_size=patch_size,
+                augment=is_train,
+                shuffle=is_train,
+                seed=seed + (0 if is_train else 1),
+                use_albumentations=use_albumentations,
+            )
             gen = cls.__new__(cls)
-            gen.image_dir   = image_dir
-            gen.mask_dir    = mask_dir
-            gen.batch_size  = batch_size
-            gen.patch_size  = patch_size
-            gen.augment     = is_train
-            gen.shuffle     = is_train
-            gen._rng        = np.random.default_rng(seed + (0 if is_train else 1))
-            gen._use_albumentations = is_train and use_albumentations and _ALBUMENTATIONS_AVAILABLE
+            gen.config      = config
+            gen.image_dir   = Path(config.image_dir)
+            gen.mask_dir    = Path(config.mask_dir)
+            gen.batch_size  = config.batch_size
+            gen.patch_size  = config.patch_size
+            gen.augment     = config.augment
+            gen.shuffle     = config.shuffle
+            gen._rng        = np.random.default_rng(config.seed)
+            gen._use_albumentations = config.augment and config.use_albumentations and _ALBUMENTATIONS_AVAILABLE
             if gen._use_albumentations:
                 gen._aug_pipeline = _build_albumentations_pipeline()
             gen.image_paths = [all_images[i] for i in idx_list]
@@ -380,8 +390,8 @@ class CloudPatchDataset(tf.keras.utils.Sequence):
         return (
             f"CloudPatchDataset("
             f"n={len(self.image_paths)}, "
-            f"batch={self.batch_size}, "
-            f"augment={self.augment})"
+            f"batch={self.config.batch_size}, "
+            f"augment={self.config.augment})"
         )
 
 

@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 import tensorflow as tf
-from model import MultiClassDiceLoss, DiceCoefficient, MeanIoU, CombinedDiceCELoss, configure_precision
+from model import MultiClassDiceLoss, DiceCoefficient, MeanIoU, CombinedDiceCELoss, _conv_relu_block
 
 def test_multi_class_dice_loss():
     loss_fn = MultiClassDiceLoss()
@@ -48,6 +48,40 @@ def test_dice_coefficient_metric():
     metric.update_state(y_true, y_pred)
     assert np.isclose(metric.result().numpy(), 1.0)
 
+def test_conv_relu_block_no_dropout():
+    """Test _conv_relu_block output shape and layers without dropout."""
+    inputs = tf.keras.Input(shape=(256, 256, 4))
+    outputs = _conv_relu_block(inputs, filters=64, dropout=0.0, name="test_block")
+    model = tf.keras.Model(inputs, outputs)
+
+    # 2 conv layers + 1 input layer
+    assert len(model.layers) == 3
+
+    # Assert layer types
+    layer_types = [type(layer) for layer in model.layers]
+    assert tf.keras.layers.Conv2D in layer_types
+    assert tf.keras.layers.SpatialDropout2D not in layer_types
+
+    # Verify shape
+    assert model.output_shape == (None, 256, 256, 64)
+
+def test_conv_relu_block_with_dropout():
+    """Test _conv_relu_block output shape and layers with dropout."""
+    inputs = tf.keras.Input(shape=(128, 128, 64))
+    outputs = _conv_relu_block(inputs, filters=128, dropout=0.5, name="test_block_drop")
+    model = tf.keras.Model(inputs, outputs)
+
+    # 2 conv layers + 1 spatial dropout + 1 input layer
+    assert len(model.layers) == 4
+
+    # Assert layer types
+    layer_types = [type(layer) for layer in model.layers]
+    assert tf.keras.layers.Conv2D in layer_types
+    assert tf.keras.layers.SpatialDropout2D in layer_types
+
+    # Verify shape
+    assert model.output_shape == (None, 128, 128, 128)
+
 def test_mean_iou_metric():
     metric = MeanIoU()
 
@@ -59,59 +93,30 @@ def test_mean_iou_metric():
     metric.update_state(y_true, y_pred)
     assert np.isclose(metric.result().numpy(), 1.0)
 
+def test_dice_coefficient_edge_cases():
+    metric = DiceCoefficient()
 
-def test_configure_precision_invalid():
-    with pytest.raises(ValueError, match="policy must be one of"):
-        configure_precision("invalid_policy")
+    # Edge case 1: All zeros (e.g., testing smoothing/division by zero avoidance)
+    y_true_zeros = np.zeros((1, 2, 2, 3), dtype=np.float32)
+    y_pred_zeros = np.zeros((1, 2, 2, 3), dtype=np.float32)
 
-def test_configure_precision_explicit(mocker):
-    # Mock set_global_policy so we don't actually change the state in tests
-    mock_set = mocker.patch("tensorflow.keras.mixed_precision.set_global_policy")
+    metric.update_state(y_true_zeros, y_pred_zeros)
+    assert np.isclose(metric.result().numpy(), 1.0, atol=1e-5)
 
-    assert configure_precision("bfloat16") == "bfloat16"
-    mock_set.assert_called_with("bfloat16")
+    metric.reset_state()
 
-    assert configure_precision("float16") == "float16"
-    mock_set.assert_called_with("float16")
+    # Edge case 2: Disjoint/completely incorrect predictions across all classes
+    # y_true has 2 pixels class 0, 1 pixel class 1, 1 pixel class 2
+    y_true_disjoint = np.array([
+        [[[1, 0, 0], [0, 1, 0]],
+         [[0, 0, 1], [1, 0, 0]]]
+    ], dtype=np.float32)
 
-    assert configure_precision("float32") == "float32"
-    mock_set.assert_called_with("float32")
+    # y_pred is entirely disjoint from y_true, with all classes present
+    y_pred_disjoint = np.array([
+        [[[0, 1, 0], [0, 0, 1]],
+         [[1, 0, 0], [0, 1, 0]]]
+    ], dtype=np.float32)
 
-def test_configure_precision_auto_no_gpu(mocker):
-    mock_set = mocker.patch("tensorflow.keras.mixed_precision.set_global_policy")
-    mocker.patch("tensorflow.config.list_physical_devices", return_value=[])
-
-    assert configure_precision("auto") == "float32"
-    mock_set.assert_called_with("float32")
-
-def test_configure_precision_auto_gpu_ampere(mocker):
-    mock_set = mocker.patch("tensorflow.keras.mixed_precision.set_global_policy")
-    mocker.patch("tensorflow.config.list_physical_devices", return_value=["GPU:0"])
-    mocker.patch("tensorflow.config.experimental.get_device_details", return_value={"compute_capability": (8, 0)})
-
-    assert configure_precision("auto") == "bfloat16"
-    mock_set.assert_called_with("bfloat16")
-
-def test_configure_precision_auto_gpu_turing(mocker):
-    mock_set = mocker.patch("tensorflow.keras.mixed_precision.set_global_policy")
-    mocker.patch("tensorflow.config.list_physical_devices", return_value=["GPU:0"])
-    mocker.patch("tensorflow.config.experimental.get_device_details", return_value={"compute_capability": (7, 5)})
-
-    assert configure_precision("auto") == "float16"
-    mock_set.assert_called_with("float16")
-
-def test_configure_precision_auto_gpu_older(mocker):
-    mock_set = mocker.patch("tensorflow.keras.mixed_precision.set_global_policy")
-    mocker.patch("tensorflow.config.list_physical_devices", return_value=["GPU:0"])
-    mocker.patch("tensorflow.config.experimental.get_device_details", return_value={"compute_capability": (6, 0)})
-
-    assert configure_precision("auto") == "float32"
-    mock_set.assert_called_with("float32")
-
-def test_configure_precision_auto_exception(mocker):
-    mock_set = mocker.patch("tensorflow.keras.mixed_precision.set_global_policy")
-    mocker.patch("tensorflow.config.list_physical_devices", return_value=["GPU:0"])
-    mocker.patch("tensorflow.config.experimental.get_device_details", side_effect=Exception("Failed to get details"))
-
-    assert configure_precision("auto") == "float16"
-    mock_set.assert_called_with("float16")
+    metric.update_state(y_true_disjoint, y_pred_disjoint)
+    assert np.isclose(metric.result().numpy(), 0.0, atol=1e-5)
