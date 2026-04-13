@@ -47,7 +47,6 @@ if str(root_dir) not in sys.path:
  
 import numpy as np
 import rasterio
-from rasterio.transform import from_bounds
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -80,7 +79,8 @@ def _cosine_bell_mask(patch_size: int) -> np.ndarray:
     window_2d = np.outer(window_1d, window_1d)
     # Hanning window already tapers to 0 at edges; normalise peak to 1
     window_2d /= window_2d.max()
-    return window_2d
+    # Add a tiny epsilon to prevent division by zero in areas with minimal overlap.
+    return window_2d + 1e-6
 
 
 # ─── image I/O ────────────────────────────────────────────────────────────────
