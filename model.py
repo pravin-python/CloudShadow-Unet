@@ -29,6 +29,8 @@ Mixed Precision Notes:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import logging
 from typing import Literal
 
@@ -506,60 +508,61 @@ CUSTOM_OBJECTS: dict = {
 so Keras can deserialise the saved loss and metric classes."""
 
 
+
+@dataclass
+class ModelConfig:
+    """Configuration for building and compiling the model."""
+    input_shape: tuple[int, int, int] = (256, 256, 4)
+    num_classes: int = _NUM_CLASSES_DEFAULT
+    base_filters: int = 64
+    depth: int = 4
+    dropout: float = 0.10
+    bottleneck_dropout: float = 0.30
+    learning_rate: float = 1e-4
+    dice_alpha: float = 0.70
+    precision: PrecisionPolicy = "auto"
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  SECTION 7 — COMPILED MODEL FACTORY (convenience)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def build_and_compile(
-    input_shape: tuple[int, int, int] = (256, 256, 4),
-    num_classes: int = _NUM_CLASSES_DEFAULT,
-    base_filters: int = 64,
-    depth: int = 4,
-    dropout: float = 0.10,
-    bottleneck_dropout: float = 0.30,
-    learning_rate: float = 1e-4,
-    dice_alpha: float = 0.70,
-    precision: PrecisionPolicy = "auto",
+    config: ModelConfig = None,
 ) -> Model:
     """Build, configure precision, compile, and return a ready-to-train model.
 
     This is the one-stop convenience factory used by train.py.
 
     Args:
-        input_shape:        (H, W, C) — default (256, 256, 4).
-        num_classes:        Segmentation classes.
-        base_filters:       First encoder filter count.
-        depth:              Encoder/decoder stages.
-        dropout:            Conv block dropout.
-        bottleneck_dropout: Bottleneck dropout (higher to regularise).
-        learning_rate:      Initial Adam learning rate.
-        dice_alpha:         Dice weight in combined loss (rest → CCE).
-        precision:          Mixed precision policy — see configure_precision().
+        config: ModelConfig containing all necessary parameters.
 
     Returns:
         Compiled Keras Model.
     """
-    configure_precision(precision)
+    if config is None:
+        config = ModelConfig()
+    configure_precision(config.precision)
 
     model = build_unet(
-        input_shape=input_shape,
-        num_classes=num_classes,
-        base_filters=base_filters,
-        depth=depth,
-        dropout=dropout,
-        bottleneck_dropout=bottleneck_dropout,
+        input_shape=config.input_shape,
+        num_classes=config.num_classes,
+        base_filters=config.base_filters,
+        depth=config.depth,
+        dropout=config.dropout,
+        bottleneck_dropout=config.bottleneck_dropout,
     )
 
     model.compile(
         optimizer=tf.keras.optimizers.Adam(
-            learning_rate=learning_rate,
+            learning_rate=config.learning_rate,
             # Loss scale manager is injected automatically by Keras when the
             # policy is float16; bfloat16 does not need it (wider range).
         ),
-        loss=CombinedDiceCELoss(alpha=dice_alpha),
+        loss=CombinedDiceCELoss(alpha=config.dice_alpha),
         metrics=[
-            DiceCoefficient(num_classes=num_classes),
-            MeanIoU(num_classes=num_classes),
+            DiceCoefficient(num_classes=config.num_classes),
+            MeanIoU(num_classes=config.num_classes),
         ],
     )
 
@@ -573,5 +576,5 @@ def build_and_compile(
 # ─── CLI quick-test ───────────────────────────────────────────────────────────
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    m = build_and_compile(precision="float32")
+    m = build_and_compile(ModelConfig(precision="float32"))
     m.summary(line_length=110)
