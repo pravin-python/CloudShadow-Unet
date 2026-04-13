@@ -47,12 +47,10 @@ Run:
 
 from __future__ import annotations
 
-import io
 import logging
 import os
 import sys
 import tempfile
-import threading
 from pathlib import Path
 
 import numpy as np
@@ -442,8 +440,8 @@ def _render_sidebar() -> dict:
     st.sidebar.markdown("**Class Legend**")
     emoji_map = {0: "🔵", 1: "⬜", 2: "🟦"}
     for cls_id, name in CLASS_NAMES.items():
-        emoji = emoji_map.get(cls_id, "🔵")
-        st.sidebar.markdown(f"{emoji} {cls_id} — {name}")
+        emoji = emoji_map.get(cls_id, "▪️")
+        st.sidebar.markdown(f"{emoji} **{cls_id}** — {name}")
 
     return {
         "model_path":               model_path,
@@ -744,13 +742,17 @@ def _render_finetune_panel(cfg: dict) -> None:
             new_img_patches  = Path(tempfile.mkdtemp())
             new_mask_patches = Path(tempfile.mkdtemp())
 
-            n = preprocess_scene(
-                image_path   = tmp_img_path,
-                mask_path    = tmp_mask_path,
+            from geospatial_utils import PreprocessConfig
+            config = PreprocessConfig(
                 out_img_dir  = new_img_patches,
                 out_mask_dir = new_mask_patches,
                 patch_size   = cfg["patch_size"],
                 overlap      = DEFAULT_OVERLAP,
+            )
+            n = preprocess_scene(
+                image_path   = tmp_img_path,
+                mask_path    = tmp_mask_path,
+                config       = config,
             )
             progress_bar.progress(0.15, text=f"✅ {n} patches extracted from new scene")
             status_text.success(f"New scene preprocessed: {n} patches ready.")
@@ -849,9 +851,9 @@ def main() -> None:
             with st.container(border=True):
                 st.subheader("Model Status")
                 if _load_model(cfg["model_path"]) is not None:
-                    st.success("Model loaded and ready")
+                    st.success("✅ Model loaded and ready")
                 else:
-                    st.error("No model found at the specified path")
+                    st.error("⚠️ No model found at the specified path")
 
         with st.expander("📚 How to prepare your data"):
             st.markdown(
