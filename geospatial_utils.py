@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Optional
 
 import cv2
@@ -320,14 +321,19 @@ def save_patches(
     return len(img_patches)
 
 
+@dataclass
+class PreprocessConfig:
+    out_img_dir: Path
+    out_mask_dir: Path
+    patch_size: int = 256
+    overlap: float = 0.25
+    enhance: bool = True
+
+
 def preprocess_scene(
     image_path: Path,
     mask_path:  Optional[Path],
-    out_img_dir:  Path,
-    out_mask_dir: Path,
-    patch_size: int   = 256,
-    overlap:    float = 0.25,
-    enhance:    bool  = True,
+    config:     PreprocessConfig,
 ) -> int:
     """Full preprocessing pipeline for a single GeoTIFF scene.
 
@@ -352,18 +358,18 @@ def preprocess_scene(
     """
     image, _ = read_scene(image_path)
 
-    if enhance:
+    if config.enhance:
         logger.info("Applying CLAHE enhancement …")
         image = apply_clahe(image)
 
     mask = read_mask_scene(mask_path) if mask_path is not None else None
-    img_patches, mask_patches = extract_patches(image, mask, patch_size, overlap)
+    img_patches, mask_patches = extract_patches(image, mask, config.patch_size, config.overlap)
 
     return save_patches(
         img_patches,
         mask_patches,
-        out_img_dir  = out_img_dir,
-        out_mask_dir = out_mask_dir,
+        out_img_dir  = config.out_img_dir,
+        out_mask_dir = config.out_mask_dir,
         scene_stem   = Path(image_path).stem,
     )
 

@@ -742,13 +742,17 @@ def _render_finetune_panel(cfg: dict) -> None:
             new_img_patches  = Path(tempfile.mkdtemp())
             new_mask_patches = Path(tempfile.mkdtemp())
 
-            n = preprocess_scene(
-                image_path   = tmp_img_path,
-                mask_path    = tmp_mask_path,
+            from geospatial_utils import PreprocessConfig
+            config = PreprocessConfig(
                 out_img_dir  = new_img_patches,
                 out_mask_dir = new_mask_patches,
                 patch_size   = cfg["patch_size"],
                 overlap      = DEFAULT_OVERLAP,
+            )
+            n = preprocess_scene(
+                image_path   = tmp_img_path,
+                mask_path    = tmp_mask_path,
+                config       = config,
             )
             progress_bar.progress(0.15, text=f"✅ {n} patches extracted from new scene")
             status_text.success(f"New scene preprocessed: {n} patches ready.")
