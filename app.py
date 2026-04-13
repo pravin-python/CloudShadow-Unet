@@ -572,7 +572,31 @@ def _render_statistics(class_map: np.ndarray, profile: dict) -> None:
     from geospatial_utils import compute_area_stats
     import pandas as pd
 
-    stats = compute_area_stats(class_map, profile)
+    transform = profile.get("transform")
+    if transform is not None:
+        pixel_area_m2 = abs(transform.a) * abs(transform.e)
+    else:
+        pixel_area_m2 = 100.0  # fallback to Sentinel-2 default
+
+    new_stats = compute_area_stats(class_map, pixel_area_m2)
+
+    # We need to convert new_stats back to old format expected by app.py
+    # because it seems app.py uses old stats format
+    stats = {}
+
+    # Old format: stats['background_px'], stats['background_km2'], stats['total_km2'], stats['cloud_fraction']
+    stats['background_px'] = new_stats['Background']['px_count']
+    stats['cloud_px'] = new_stats['Cloud']['px_count']
+    stats['shadow_px'] = new_stats['Shadow']['px_count']
+
+    stats['background_km2'] = new_stats['Background']['area_km2']
+    stats['cloud_km2'] = new_stats['Cloud']['area_km2']
+    stats['shadow_km2'] = new_stats['Shadow']['area_km2']
+
+    stats['total_px'] = class_map.size
+    stats['total_km2'] = stats['background_km2'] + stats['cloud_km2'] + stats['shadow_km2']
+    stats['cloud_fraction'] = stats['cloud_km2'] / max(stats['total_km2'], 1e-9)
+    stats['shadow_fraction'] = stats['shadow_km2'] / max(stats['total_km2'], 1e-9)
 
     # ── Top KPI row ───────────────────────────────────────────────────────────
     col1, col2, col3, col4, col5 = st.columns(5)
