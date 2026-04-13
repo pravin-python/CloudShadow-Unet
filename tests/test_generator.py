@@ -1,48 +1,63 @@
 import pytest
 import numpy as np
 import tensorflow as tf
-from src.model.generator import _random_brightness
+from src.model.generator import _random_rotate90
 
-def test_random_brightness_changes_image():
-    """Test that _random_brightness modifies the image properly."""
-    rng = np.random.default_rng(42)
-    # Create an image filled with 0.5 (mid-gray)
-    image = np.ones((256, 256, 4), dtype=np.float32) * 0.5
+class MockRNG:
+    def __init__(self, value):
+        self.value = value
+    def integers(self, low, high):
+        return self.value
 
-    # Store original max delta
-    max_delta = 0.2
+def test_random_rotate90_0():
+    rng = MockRNG(0)
+    image = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
+    mask = np.array([[1, 2], [3, 4]])
+    out_image, out_mask = _random_rotate90(image, mask, rng)
+    np.testing.assert_array_equal(out_image, image)
+    np.testing.assert_array_equal(out_mask, mask)
 
-    # Apply brightness augmentation
-    aug_image = _random_brightness(image, rng, max_delta=max_delta)
+def test_random_rotate90_1():
+    rng = MockRNG(1)
+    image = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
+    mask = np.array([[1, 2], [3, 4]])
+    # A 90 degree CCW rotation should move the top-right to top-left, bottom-right to top-right, etc.
+    expected_image = np.rot90(image, k=1, axes=(0, 1))
+    expected_mask = np.rot90(mask, k=1)
 
-    # Check that image changed
-    assert not np.array_equal(image, aug_image)
+    out_image, out_mask = _random_rotate90(image, mask, rng)
+    np.testing.assert_array_equal(out_image, expected_image)
+    np.testing.assert_array_equal(out_mask, expected_mask)
 
-    # Check that delta is uniform across the image
-    # (since delta is a single scalar added to the entire image)
-    delta_image = aug_image - image
-    # Note: Because of clipping, delta might not be exactly equal to the scalar if clipping happened,
-    # but since image is 0.5 and delta <= 0.2, clipping shouldn't happen here.
-    assert np.allclose(delta_image, delta_image[0,0,0], atol=1e-5)
+def test_random_rotate90_2():
+    rng = MockRNG(2)
+    image = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
+    mask = np.array([[1, 2], [3, 4]])
 
-    # Check that values are within bounds
-    assert np.all(aug_image >= 0.0)
-    assert np.all(aug_image <= 1.0)
+    expected_image = np.rot90(image, k=2, axes=(0, 1))
+    expected_mask = np.rot90(mask, k=2)
 
-def test_random_brightness_clipping():
-    """Test that _random_brightness correctly clips values to [0.0, 1.0]."""
-    # Fix the seed such that rng.uniform(-max_delta, max_delta) is positive
-    # We will test an image filled with 0.95 and max_delta 0.1 to trigger clipping at 1.0
-    rng = np.random.default_rng(1) # Seed 1 gives a positive first uniform sample
+    out_image, out_mask = _random_rotate90(image, mask, rng)
+    np.testing.assert_array_equal(out_image, expected_image)
+    np.testing.assert_array_equal(out_mask, expected_mask)
 
-    image = np.ones((256, 256, 4), dtype=np.float32) * 0.95
-    aug_image = _random_brightness(image, rng, max_delta=0.1)
+def test_random_rotate90_3():
+    rng = MockRNG(3)
+    image = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
+    mask = np.array([[1, 2], [3, 4]])
 
-    assert np.all(aug_image <= 1.0)
+    expected_image = np.rot90(image, k=3, axes=(0, 1))
+    expected_mask = np.rot90(mask, k=3)
 
-    # Test clipping at 0.0
-    rng = np.random.default_rng(42) # Seed 42 gives a negative first uniform sample
-    image = np.ones((256, 256, 4), dtype=np.float32) * 0.05
-    aug_image = _random_brightness(image, rng, max_delta=0.1)
+    out_image, out_mask = _random_rotate90(image, mask, rng)
+    np.testing.assert_array_equal(out_image, expected_image)
+    np.testing.assert_array_equal(out_mask, expected_mask)
 
-    assert np.all(aug_image >= 0.0)
+def test_random_rotate90_preserves_dtype():
+    rng = MockRNG(1)
+    image = np.zeros((10, 10, 4), dtype=np.float32)
+    mask = np.zeros((10, 10), dtype=np.uint8)
+
+    out_image, out_mask = _random_rotate90(image, mask, rng)
+    assert out_image.dtype == image.dtype
+    assert out_mask.dtype == mask.dtype
